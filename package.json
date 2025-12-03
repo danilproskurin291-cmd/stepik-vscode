@@ -11,9 +11,6 @@
     "Education",
     "Other"
   ],
-  "activationEvents": [
-    "onView:stepikCourses"
-  ],
   "main": "./dist/extension.js",
   "contributes": {
     "commands": [
