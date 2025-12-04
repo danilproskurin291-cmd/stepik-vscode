@@ -11,6 +11,11 @@
     "Education",
     "Other"
   ],
+  "activationEvents": [
+    "onView:stepikCourses",
+    "onCommand:stepik.login",
+    "onCommand:stepik.selectCourse"
+  ],
   "main": "./dist/extension.js",
   "contributes": {
     "commands": [
@@ -105,5 +110,9 @@
   },
   "dependencies": {
     "node-fetch": "^3.3.2"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/su-mt/stepik-vscode.git"
   }
 }

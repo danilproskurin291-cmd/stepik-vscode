@@ -2,3 +2,7 @@ Stepik-API
 dist
 node_modules
 .vscode
+task.md 
+TODO.md
+package-lock.json
+*.vsix
