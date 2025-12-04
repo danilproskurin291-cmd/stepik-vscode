@@ -21,7 +21,8 @@
     "commands": [
       {
         "command": "stepik.login",
-        "title": "Stepik: Login"
+        "title": "Stepik: Login",
+        "icon": "$(sign-in)"
       },
       {
         "command": "stepik.logout",
@@ -82,6 +83,11 @@
           "command": "stepik.logout",
           "when": "view == stepikCourses",
           "group": "navigation@2"
+        },
+        {
+          "command": "stepik.login",
+          "when": "view == stepikCourses",
+          "group": "navigation@3"
         }
       ],
       "editor/title": [
