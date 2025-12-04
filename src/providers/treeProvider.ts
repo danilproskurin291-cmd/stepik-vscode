@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { StepikApi, Course, Lesson, Step, Section, Unit } from '../api/stepikApi';
+import { StepikApi, Course, Lesson, Step, Section, Unit, Progress } from '../api/stepikApi';
 
 type TreeItemType = 'course' | 'section' | 'lesson' | 'step';
 
@@ -15,7 +15,8 @@ interface TreeItemData {
     step?: Step;
     courseName?: string;
     lessonTitle?: string;
-    stepsPassed?: Map<number, boolean>;
+    progressMap?: Map<string, Progress>;  // Map of progress ID to Progress
+    courseProgress?: Progress;  // For course status
 }
 
 export class StepikTreeProvider implements vscode.TreeDataProvider<TreeItemData> {
@@ -33,22 +34,31 @@ export class StepikTreeProvider implements vscode.TreeDataProvider<TreeItemData>
     getTreeItem(element: TreeItemData): vscode.TreeItem {
         switch (element.type) {
             case 'course':
-                return this.createCourseItem(element.course!);
+                return this.createCourseItem(element.course!, element.courseProgress);
             case 'section':
                 return this.createSectionItem(element.section!);
             case 'lesson':
-                return this.createLessonItem(element.lesson!, element.stepsPassed);
+                return this.createLessonItem(element.lesson!, element.progressMap);
             case 'step':
-                return this.createStepItem(element.step!, element.courseName!, element.lessonTitle!, element.stepsPassed);
+                return this.createStepItem(element.step!, element.courseName!, element.lessonTitle!, element.progressMap);
         }
     }
 
     async getChildren(element?: TreeItemData): Promise<TreeItemData[]> {
         try {
             if (!element) {
-                // Root - show courses
+                // Root - show courses with their progress
                 const courses = await this.api.getUserCourses();
-                return courses.map(course => ({ type: 'course' as const, course }));
+                
+                // Get progress for all courses
+                const progressIds = courses.map(c => c.progress).filter(p => p);
+                const progressMap = await this.api.getProgressByIds(progressIds);
+                
+                return courses.map(course => ({ 
+                    type: 'course' as const, 
+                    course,
+                    courseProgress: progressMap.get(course.progress)
+                }));
             }
 
             switch (element.type) {
@@ -70,9 +80,9 @@ export class StepikTreeProvider implements vscode.TreeDataProvider<TreeItemData>
                     const lessonIds = units.map(u => u.lesson);
                     const lessons = await this.api.getLessons(lessonIds);
                     
-                    // Get step progress for all lessons to determine lesson status
-                    const allStepIds = lessons.flatMap(l => l.steps);
-                    const stepsPassed = await this.api.getStepsProgress(allStepIds);
+                    // Get progress for all lessons
+                    const progressIds = lessons.map(l => l.progress).filter(p => p);
+                    const progressMap = await this.api.getProgressByIds(progressIds);
                     
                     // Sort by unit position
                     const unitPositions = new Map(units.map(u => [u.lesson, u.position]));
@@ -82,16 +92,17 @@ export class StepikTreeProvider implements vscode.TreeDataProvider<TreeItemData>
                             type: 'lesson' as const, 
                             lesson,
                             courseName: element.courseName,
-                            stepsPassed
+                            progressMap
                         }));
                 }
 
                 case 'lesson': {
                     // Show steps
                     const steps = await this.api.getSteps(element.lesson!.steps);
+                    
                     // Get progress for all steps
-                    const stepIds = steps.map(s => s.id);
-                    const stepsPassed = await this.api.getStepsProgress(stepIds);
+                    const progressIds = steps.map(s => s.progress).filter(p => p);
+                    const progressMap = await this.api.getProgressByIds(progressIds);
                     
                     return steps
                         .sort((a, b) => a.position - b.position)
@@ -100,7 +111,7 @@ export class StepikTreeProvider implements vscode.TreeDataProvider<TreeItemData>
                             step,
                             courseName: element.courseName,
                             lessonTitle: element.lesson!.title,
-                            stepsPassed
+                            progressMap
                         }));
                 }
 
@@ -122,14 +133,15 @@ export class StepikTreeProvider implements vscode.TreeDataProvider<TreeItemData>
         }
     }
 
-    private createCourseItem(course: Course): vscode.TreeItem {
+    private createCourseItem(course: Course, courseProgress?: Progress): vscode.TreeItem {
         const item = new vscode.TreeItem(course.title, vscode.TreeItemCollapsibleState.Collapsed);
         
-        // Course status: certificate = green, started = yellow, not started = default
-        if (course.is_certificate_issued) {
+        // Course status: certificate/passed = green, started (n_steps_passed > 0) = yellow, not started = default
+        if (course.is_certificate_issued || courseProgress?.is_passed) {
             item.iconPath = new vscode.ThemeIcon('book', STATUS_PASSED);
+        } else if (courseProgress && courseProgress.n_steps_passed > 0) {
+            item.iconPath = new vscode.ThemeIcon('book', STATUS_STARTED);
         } else {
-            // Will be updated when we know if any lesson is started
             item.iconPath = new vscode.ThemeIcon('book');
         }
         item.contextValue = 'course';
@@ -143,18 +155,18 @@ export class StepikTreeProvider implements vscode.TreeDataProvider<TreeItemData>
         return item;
     }
 
-    private createLessonItem(lesson: Lesson, stepsPassed?: Map<number, boolean>): vscode.TreeItem {
+    private createLessonItem(lesson: Lesson, progressMap?: Map<string, Progress>): vscode.TreeItem {
         const item = new vscode.TreeItem(lesson.title, vscode.TreeItemCollapsibleState.Collapsed);
         
-        // Lesson status based on steps
-        if (stepsPassed && lesson.steps.length > 0) {
-            const passedCount = lesson.steps.filter(stepId => stepsPassed.get(stepId)).length;
-            
-            if (passedCount === lesson.steps.length) {
+        // Lesson status based on progress
+        const progress = progressMap?.get(lesson.progress);
+        
+        if (progress) {
+            if (progress.is_passed) {
                 // All steps passed = green
                 item.iconPath = new vscode.ThemeIcon('file-text', STATUS_PASSED);
-            } else if (passedCount > 0) {
-                // At least one passed = yellow
+            } else if (progress.n_steps_passed > 0) {
+                // At least one step passed = yellow
                 item.iconPath = new vscode.ThemeIcon('file-text', STATUS_STARTED);
             } else {
                 // None passed = default
@@ -168,14 +180,15 @@ export class StepikTreeProvider implements vscode.TreeDataProvider<TreeItemData>
         return item;
     }
 
-    private createStepItem(step: Step, courseName: string, lessonTitle: string, stepsPassed?: Map<number, boolean>): vscode.TreeItem {
+    private createStepItem(step: Step, courseName: string, lessonTitle: string, progressMap?: Map<string, Progress>): vscode.TreeItem {
         const stepType = step.block.name;
         const label = `Step ${step.position}: ${this.getStepTypeLabel(stepType)}`;
         
         const item = new vscode.TreeItem(label, vscode.TreeItemCollapsibleState.None);
         
         // Step status: passed = green, not passed = default
-        const isPassed = stepsPassed?.get(step.id) || false;
+        const progress = progressMap?.get(step.progress);
+        const isPassed = progress?.is_passed || false;
         const iconName = this.getStepIconName(stepType);
         
         if (isPassed) {
