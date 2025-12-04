@@ -142,6 +142,15 @@ export class StepikApi {
         return coursesData.courses;
     }
 
+    async getCourse(courseId: number): Promise<Course | undefined> {
+        try {
+            const data = await this.request<{ courses: Course[] }>(`/courses/${courseId}`);
+            return data.courses[0];
+        } catch {
+            return undefined;
+        }
+    }
+
     async getSections(sectionIds: number[]): Promise<Section[]> {
         if (sectionIds.length === 0) {
             return [];

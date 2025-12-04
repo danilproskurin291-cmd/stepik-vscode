@@ -25,7 +25,73 @@ export class StepikTreeProvider implements vscode.TreeDataProvider<TreeItemData>
     readonly onDidChangeTreeData: vscode.Event<TreeItemData | undefined | null | void> = 
         this._onDidChangeTreeData.event;
 
-    constructor(private api: StepikApi) {}
+    private selectedCourse: Course | undefined;
+    private localPassedSteps: Set<number> = new Set();  // Locally marked as passed (before API refresh)
+
+    constructor(
+        private api: StepikApi,
+        private context: vscode.ExtensionContext
+    ) {
+        // Restore selected course from storage
+        this.restoreSelectedCourse();
+    }
+
+    private async restoreSelectedCourse(): Promise<void> {
+        const courseId = this.context.globalState.get<number>('selectedCourseId');
+        if (courseId) {
+            try {
+                const course = await this.api.getCourse(courseId);
+                if (course) {
+                    this.selectedCourse = course;
+                    this.refresh();
+                }
+            } catch {
+                // Course not found or not accessible, clear selection
+                this.context.globalState.update('selectedCourseId', undefined);
+            }
+        }
+    }
+
+    async selectCourse(): Promise<void> {
+        const courses = await this.api.getUserCourses();
+        
+        const items = courses.map(course => ({
+            label: course.title,
+            description: `${course.sections.length} sections`,
+            course
+        }));
+
+        const selected = await vscode.window.showQuickPick(items, {
+            placeHolder: 'Select a course',
+            title: 'Stepik: Select Course'
+        });
+
+        if (selected) {
+            this.selectedCourse = selected.course;
+            await this.context.globalState.update('selectedCourseId', selected.course.id);
+            this.refresh();
+        }
+    }
+
+    getSelectedCourse(): Course | undefined {
+        return this.selectedCourse;
+    }
+
+    clearCourseSelection(): void {
+        this.selectedCourse = undefined;
+        this.context.globalState.update('selectedCourseId', undefined);
+        this.refresh();
+    }
+
+    // Mark step as passed locally (instant UI update)
+    markStepAsPassed(stepId: number): void {
+        this.localPassedSteps.add(stepId);
+    }
+
+    // Clear local passed steps (after API refresh)
+    clearLocalPassedSteps(): void {
+        this.localPassedSteps.clear();
+    }
 
     refresh(): void {
         this._onDidChangeTreeData.fire();
@@ -33,58 +99,50 @@ export class StepikTreeProvider implements vscode.TreeDataProvider<TreeItemData>
 
     // Force full refresh by firing event for root
     forceRefresh(): void {
+        this.clearLocalPassedSteps();
         this._onDidChangeTreeData.fire(undefined);
     }
 
     getTreeItem(element: TreeItemData): vscode.TreeItem {
         switch (element.type) {
-            case 'course':
-                return this.createCourseItem(element.course!, element.courseProgress);
             case 'section':
                 return this.createSectionItem(element.section!, element.progressMap);
             case 'lesson':
                 return this.createLessonItem(element.lesson!, element.progressMap);
             case 'step':
                 return this.createStepItem(element.step!, element.courseName!, element.lessonTitle!, element.progressMap);
+            default:
+                return new vscode.TreeItem('Unknown');
         }
     }
 
     async getChildren(element?: TreeItemData): Promise<TreeItemData[]> {
         try {
             if (!element) {
-                // Root - show courses with their progress
-                const courses = await this.api.getUserCourses();
+                // Root - show selected course sections or prompt to select
+                if (!this.selectedCourse) {
+                    // No course selected - show message item
+                    return [];
+                }
+
+                // Show sections of selected course with their progress
+                const sections = await this.api.getSections(this.selectedCourse.sections);
                 
-                // Get progress for all courses
-                const progressIds = courses.map(c => c.progress).filter(p => p);
+                // Get progress for all sections
+                const progressIds = sections.map(s => s.progress).filter(p => p);
                 const progressMap = await this.api.getProgressByIds(progressIds);
                 
-                return courses.map(course => ({ 
-                    type: 'course' as const, 
-                    course,
-                    courseProgress: progressMap.get(course.progress)
-                }));
+                return sections
+                    .sort((a, b) => a.position - b.position)
+                    .map(section => ({ 
+                        type: 'section' as const, 
+                        section,
+                        courseName: this.selectedCourse!.title,
+                        progressMap
+                    }));
             }
 
             switch (element.type) {
-                case 'course': {
-                    // Show sections with their progress
-                    const sections = await this.api.getSections(element.course!.sections);
-                    
-                    // Get progress for all sections
-                    const progressIds = sections.map(s => s.progress).filter(p => p);
-                    const progressMap = await this.api.getProgressByIds(progressIds);
-                    
-                    return sections
-                        .sort((a, b) => a.position - b.position)
-                        .map(section => ({ 
-                            type: 'section' as const, 
-                            section,
-                            courseName: element.course!.title,
-                            progressMap
-                        }));
-                }
-
                 case 'section': {
                     // Show lessons via units
                     const units = await this.api.getUnits(element.section!.units);
@@ -144,21 +202,6 @@ export class StepikTreeProvider implements vscode.TreeDataProvider<TreeItemData>
         }
     }
 
-    private createCourseItem(course: Course, courseProgress?: Progress): vscode.TreeItem {
-        const item = new vscode.TreeItem(course.title, vscode.TreeItemCollapsibleState.Collapsed);
-        
-        // Course status: certificate/passed = green, started (n_steps_passed > 0) = yellow, not started = default
-        if (course.is_certificate_issued || courseProgress?.is_passed) {
-            item.iconPath = new vscode.ThemeIcon('book', STATUS_PASSED);
-        } else if (courseProgress && courseProgress.n_steps_passed > 0) {
-            item.iconPath = new vscode.ThemeIcon('book', STATUS_STARTED);
-        } else {
-            item.iconPath = new vscode.ThemeIcon('book');
-        }
-        item.contextValue = 'course';
-        return item;
-    }
-
     private createSectionItem(section: Section, progressMap?: Map<string, Progress>): vscode.TreeItem {
         const item = new vscode.TreeItem(section.title, vscode.TreeItemCollapsibleState.Collapsed);
         
@@ -215,9 +258,9 @@ export class StepikTreeProvider implements vscode.TreeDataProvider<TreeItemData>
         
         const item = new vscode.TreeItem(label, vscode.TreeItemCollapsibleState.None);
         
-        // Step status: passed = green, not passed = default
+        // Step status: passed = green (check local cache first, then API progress)
         const progress = progressMap?.get(step.progress);
-        const isPassed = progress?.is_passed || false;
+        const isPassed = this.localPassedSteps.has(step.id) || progress?.is_passed || false;
         const iconName = this.getStepIconName(stepType);
         
         if (isPassed) {

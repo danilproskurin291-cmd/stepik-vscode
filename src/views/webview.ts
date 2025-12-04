@@ -26,7 +26,8 @@ export class StepikWebview {
     constructor(
         private context: vscode.ExtensionContext,
         private api: StepikApi,
-        private treeProvider: StepikTreeProvider
+        private treeProvider: StepikTreeProvider,
+        private outputChannel: vscode.OutputChannel
     ) {}
 
     async showStep(stepContext: StepContext): Promise<void> {
@@ -94,6 +95,7 @@ export class StepikWebview {
         }
 
         const stepType = this.currentStep.step.block.name;
+        const stepId = this.currentStep.step.id;
         let reply: QuizReply = {};
 
         if (stepType === 'choice') {
@@ -109,13 +111,39 @@ export class StepikWebview {
             const result = await this.pollSubmissionResult(submission.id);
             
             if (result.status === 'correct') {
+                // Mark step as passed locally for instant UI update
+                this.treeProvider.markStepAsPassed(stepId);
+                this.treeProvider.refresh();
+                
                 vscode.window.showInformationMessage(`✅ Correct! Score: ${result.score}`);
-                // Delay to allow API to update progress
+                
+                // Delay to allow API to update progress, then full refresh
                 await new Promise(resolve => setTimeout(resolve, 1000));
                 this.treeProvider.forceRefresh();
             } else {
-                const hint = result.hint || result.feedback || 'Wrong answer';
-                vscode.window.showErrorMessage(`❌ ${result.status}: ${hint}`);
+                // Show brief message in notification
+                vscode.window.showErrorMessage(
+                    `❌ Wrong answer`,
+                    'Show Details'
+                ).then(selection => {
+                    if (selection === 'Show Details') {
+                        this.outputChannel.show();
+                    }
+                });
+                
+                // Output detailed error to output channel
+                this.outputChannel.appendLine('═'.repeat(50));
+                this.outputChannel.appendLine(`❌ Quiz Result: ${result.status}`);
+                this.outputChannel.appendLine(`Step ID: ${stepId}`);
+                this.outputChannel.appendLine(`Score: ${result.score}`);
+                if (result.hint) {
+                    this.outputChannel.appendLine(`\nHint: ${result.hint}`);
+                }
+                if (result.feedback) {
+                    this.outputChannel.appendLine(`\nFeedback: ${result.feedback}`);
+                }
+                this.outputChannel.appendLine('═'.repeat(50));
+                this.outputChannel.appendLine('');
             }
         } catch (error) {
             vscode.window.showErrorMessage(`Submission failed: ${error}`);

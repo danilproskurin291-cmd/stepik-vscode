@@ -57,17 +57,27 @@ async function checkAndCreateWorkspace(): Promise<void> {
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
 
+    // Create output channel for errors
+    const outputChannel = vscode.window.createOutputChannel('Stepik');
+
     const auth = new StepikAuth(context);
     api = new StepikApi(auth);
-    treeProvider = new StepikTreeProvider(api);
-    const webview = new StepikWebview(context, api, treeProvider);
-    const submit = new StepikSubmit(api, treeProvider);
+    treeProvider = new StepikTreeProvider(api, context);
+    const webview = new StepikWebview(context, api, treeProvider, outputChannel);
+    const submit = new StepikSubmit(api, treeProvider, outputChannel);
 
     // Register tree view
     const treeView = vscode.window.createTreeView('stepikCourses', {
         treeDataProvider: treeProvider,
         showCollapseAll: true
     });
+
+    // Update tree view title based on selected course
+    const updateTreeTitle = () => {
+        const course = treeProvider.getSelectedCourse();
+        treeView.title = course ? `Stepik: ${course.title}` : 'Stepik: Select Course';
+    };
+    updateTreeTitle();
 
     // Register commands
     context.subscriptions.push(
@@ -82,7 +92,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }),
 
         vscode.commands.registerCommand('stepik.refresh', () => {
-            treeProvider.refresh();
+            treeProvider.forceRefresh();
+        }),
+
+        vscode.commands.registerCommand('stepik.selectCourse', async () => {
+            await treeProvider.selectCourse();
+            updateTreeTitle();
         }),
 
         vscode.commands.registerCommand('stepik.openStep', async (stepContext: { step: Step; courseName: string; lessonTitle: string }) => {
@@ -93,7 +108,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             await submit.submitCurrentFile();
         }),
 
-        treeView
+        treeView,
+        outputChannel
     );
 
     // Check if already logged in

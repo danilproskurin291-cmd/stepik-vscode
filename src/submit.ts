@@ -14,7 +14,8 @@ interface StepMapping {
 export class StepikSubmit {
     constructor(
         private api: StepikApi,
-        private treeProvider: StepikTreeProvider
+        private treeProvider: StepikTreeProvider,
+        private outputChannel: vscode.OutputChannel
     ) {}
 
     async submitCurrentFile(): Promise<void> {
@@ -58,13 +59,13 @@ export class StepikSubmit {
                     const result = await this.pollSubmissionResult(submission.id);
 
                     // Show result
-                    this.showResult(result);
+                    this.showResult(result, stepId);
 
                     // Refresh tree to update status (with delay for API to update progress)
                     if (result.status === 'correct') {
                         await new Promise(resolve => setTimeout(resolve, 1000));
+                        this.treeProvider.forceRefresh();
                     }
-                    this.treeProvider.forceRefresh();
                 } catch (error) {
                     vscode.window.showErrorMessage(`Submission failed: ${error}`);
                 }
@@ -106,20 +107,42 @@ export class StepikSubmit {
         throw new Error('Submission evaluation timeout');
     }
 
-    private showResult(result: { status: string; score: number; hint: string; feedback: string }): void {
+    private showResult(result: { status: string; score: number; hint: string; feedback: string }, stepId: number): void {
         const isCorrect = result.status === 'correct';
         
         if (isCorrect) {
+            // Mark step as passed locally for instant UI update
+            this.treeProvider.markStepAsPassed(stepId);
+            this.treeProvider.refresh();
+            
             vscode.window.showInformationMessage(
                 `✅ Correct! Score: ${result.score}`,
                 'OK'
             );
         } else {
-            const message = result.hint || result.feedback || 'Wrong answer';
+            // Show brief message in notification
             vscode.window.showErrorMessage(
-                `❌ ${result.status}: ${message}`,
-                'OK'
-            );
+                `❌ Wrong solution`,
+                'Show Details'
+            ).then(selection => {
+                if (selection === 'Show Details') {
+                    this.outputChannel.show();
+                }
+            });
+            
+            // Output detailed error to output channel
+            this.outputChannel.appendLine('═'.repeat(50));
+            this.outputChannel.appendLine(`❌ Submission Result: ${result.status}`);
+            this.outputChannel.appendLine(`Step ID: ${stepId}`);
+            this.outputChannel.appendLine(`Score: ${result.score}`);
+            if (result.hint) {
+                this.outputChannel.appendLine(`\nHint: ${result.hint}`);
+            }
+            if (result.feedback) {
+                this.outputChannel.appendLine(`\nFeedback: ${result.feedback}`);
+            }
+            this.outputChannel.appendLine('═'.repeat(50));
+            this.outputChannel.appendLine('');
         }
     }
 }

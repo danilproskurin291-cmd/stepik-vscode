@@ -36,6 +36,11 @@
         "command": "stepik.submit",
         "title": "Stepik: Submit Solution",
         "icon": "$(cloud-upload)"
+      },
+      {
+        "command": "stepik.selectCourse",
+        "title": "Stepik: Select Course",
+        "icon": "$(book)"
       }
     ],
     "viewsContainers": {
@@ -57,6 +62,11 @@
     },
     "menus": {
       "view/title": [
+        {
+          "command": "stepik.selectCourse",
+          "when": "view == stepikCourses",
+          "group": "navigation@0"
+        },
         {
           "command": "stepik.refresh",
           "when": "view == stepikCourses",
