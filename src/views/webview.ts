@@ -198,32 +198,62 @@ export class StepikWebview {
 
     private getFileExtension(language: string): string {
         const extensions: { [key: string]: string } = {
+            // Python
             'python3': '.py',
             'python': '.py',
+            'python2': '.py',
+            'python31': '.py',
+            // C/C++
             'cpp': '.cpp',
+            'c++': '.cpp',
             'cpp11': '.cpp',
+            'c++11': '.cpp',
             'cpp14': '.cpp',
+            'c++14': '.cpp',
             'cpp17': '.cpp',
+            'c++17': '.cpp',
             'cpp20': '.cpp',
+            'c++20': '.cpp',
             'c': '.c',
             'c11': '.c',
+            // Java
             'java': '.java',
             'java8': '.java',
             'java11': '.java',
             'java17': '.java',
+            // JavaScript/TypeScript
             'javascript': '.js',
+            'js': '.js',
+            'nodejs': '.js',
             'typescript': '.ts',
+            'ts': '.ts',
+            // Other languages
             'kotlin': '.kt',
             'go': '.go',
+            'golang': '.go',
             'rust': '.rs',
             'csharp': '.cs',
+            'c#': '.cs',
             'ruby': '.rb',
             'php': '.php',
             'scala': '.scala',
             'haskell': '.hs',
-            'sql': '.sql'
+            'hs': '.hs',
+            'sql': '.sql',
+            'swift': '.swift',
+            'r': '.r',
+            'perl': '.pl',
+            'octave': '.m',
+            'matlab': '.m',
+            'bash': '.sh',
+            'shell': '.sh',
+            'clojure': '.clj',
+            'mono c#': '.cs',
+            'asm32': '.asm',
+            'asm64': '.asm',
         };
-        return extensions[language] || '.txt';
+        // Try exact match first, then lowercase
+        return extensions[language] || extensions[language.toLowerCase()] || '.txt';
     }
 
     private getHtmlContent(step: Step): string {
@@ -248,6 +278,8 @@ export class StepikWebview {
             ? this.getSamplesHtml(samples)
             : '';
 
+        const stepUrl = `https://stepik.org/lesson/${step.lesson}/step/${step.position}`;
+        
         return `<!DOCTYPE html>
 <html>
 <head>
@@ -258,6 +290,10 @@ export class StepikWebview {
     </style>
 </head>
 <body>
+    <div class="step-header">
+        <a href="${stepUrl}" class="stepik-link">Open on Stepik ↗</a>
+    </div>
+    
     <div class="task-type">${step.block.name.toUpperCase()}</div>
     
     <div class="task-content">
@@ -370,6 +406,18 @@ export class StepikWebview {
             color: var(--vscode-foreground);
             background: var(--vscode-editor-background);
             line-height: 1.6;
+        }
+        .step-header {
+            margin-bottom: 16px;
+            text-align: right;
+        }
+        .stepik-link {
+            color: var(--vscode-textLink-foreground);
+            text-decoration: none;
+            font-size: 14px;
+        }
+        .stepik-link:hover {
+            text-decoration: underline;
         }
         .task-type {
             display: inline-block;

@@ -36,7 +36,7 @@ export class StepikTreeProvider implements vscode.TreeDataProvider<TreeItemData>
             case 'course':
                 return this.createCourseItem(element.course!, element.courseProgress);
             case 'section':
-                return this.createSectionItem(element.section!);
+                return this.createSectionItem(element.section!, element.progressMap);
             case 'lesson':
                 return this.createLessonItem(element.lesson!, element.progressMap);
             case 'step':
@@ -63,14 +63,20 @@ export class StepikTreeProvider implements vscode.TreeDataProvider<TreeItemData>
 
             switch (element.type) {
                 case 'course': {
-                    // Show sections
+                    // Show sections with their progress
                     const sections = await this.api.getSections(element.course!.sections);
+                    
+                    // Get progress for all sections
+                    const progressIds = sections.map(s => s.progress).filter(p => p);
+                    const progressMap = await this.api.getProgressByIds(progressIds);
+                    
                     return sections
                         .sort((a, b) => a.position - b.position)
                         .map(section => ({ 
                             type: 'section' as const, 
                             section,
-                            courseName: element.course!.title 
+                            courseName: element.course!.title,
+                            progressMap
                         }));
                 }
 
@@ -148,9 +154,27 @@ export class StepikTreeProvider implements vscode.TreeDataProvider<TreeItemData>
         return item;
     }
 
-    private createSectionItem(section: Section): vscode.TreeItem {
+    private createSectionItem(section: Section, progressMap?: Map<string, Progress>): vscode.TreeItem {
         const item = new vscode.TreeItem(section.title, vscode.TreeItemCollapsibleState.Collapsed);
-        item.iconPath = new vscode.ThemeIcon('folder');
+        
+        // Section status based on progress
+        const progress = progressMap?.get(section.progress);
+        
+        if (progress) {
+            if (progress.is_passed) {
+                // All lessons passed = green
+                item.iconPath = new vscode.ThemeIcon('folder', STATUS_PASSED);
+            } else if (progress.n_steps_passed > 0) {
+                // At least one step passed = yellow
+                item.iconPath = new vscode.ThemeIcon('folder', STATUS_STARTED);
+            } else {
+                // None passed = default
+                item.iconPath = new vscode.ThemeIcon('folder');
+            }
+        } else {
+            item.iconPath = new vscode.ThemeIcon('folder');
+        }
+        
         item.contextValue = 'section';
         return item;
     }
