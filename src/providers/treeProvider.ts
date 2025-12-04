@@ -31,6 +31,11 @@ export class StepikTreeProvider implements vscode.TreeDataProvider<TreeItemData>
         this._onDidChangeTreeData.fire();
     }
 
+    // Force full refresh by firing event for root
+    forceRefresh(): void {
+        this._onDidChangeTreeData.fire(undefined);
+    }
+
     getTreeItem(element: TreeItemData): vscode.TreeItem {
         switch (element.type) {
             case 'course':

@@ -110,7 +110,9 @@ export class StepikWebview {
             
             if (result.status === 'correct') {
                 vscode.window.showInformationMessage(`✅ Correct! Score: ${result.score}`);
-                this.treeProvider.refresh();
+                // Delay to allow API to update progress
+                await new Promise(resolve => setTimeout(resolve, 1000));
+                this.treeProvider.forceRefresh();
             } else {
                 const hint = result.hint || result.feedback || 'Wrong answer';
                 vscode.window.showErrorMessage(`❌ ${result.status}: ${hint}`);

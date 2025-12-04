@@ -60,8 +60,11 @@ export class StepikSubmit {
                     // Show result
                     this.showResult(result);
 
-                    // Refresh tree to update status
-                    this.treeProvider.refresh();
+                    // Refresh tree to update status (with delay for API to update progress)
+                    if (result.status === 'correct') {
+                        await new Promise(resolve => setTimeout(resolve, 1000));
+                    }
+                    this.treeProvider.forceRefresh();
                 } catch (error) {
                     vscode.window.showErrorMessage(`Submission failed: ${error}`);
                 }
