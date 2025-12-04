@@ -29,6 +29,11 @@ export interface Lesson {
     steps: number[];
 }
 
+export interface ChoiceOption {
+    text: string;
+    is_correct?: boolean;
+}
+
 export interface Step {
     id: number;
     lesson: number;
@@ -41,7 +46,22 @@ export interface Step {
             code_templates?: { [key: string]: string };
             limits?: { [key: string]: { time: number; memory: number } };
             samples?: Array<[string, string]>;
+            // Quiz options
+            is_multiple_choice?: boolean;
+            options?: ChoiceOption[];
+            // String/Number options
+            pattern?: string;
+            case_sensitive?: boolean;
         };
+    };
+}
+
+export interface Attempt {
+    id: number;
+    step: number;
+    dataset?: {
+        is_multiple_choice?: boolean;
+        options?: string[];
     };
 }
 
@@ -51,6 +71,12 @@ export interface Submission {
     score: number;
     hint: string;
     feedback: string;
+}
+
+export interface QuizReply {
+    choices?: boolean[];  // For choice/multichoice
+    text?: string;        // For string
+    number?: string;      // For number
 }
 
 export class StepikApi {
@@ -147,8 +173,8 @@ export class StepikApi {
         return data.steps;
     }
 
-    async createAttempt(stepId: number): Promise<{ id: number }> {
-        const data = await this.request<{ attempts: Array<{ id: number }> }>('/attempts', {
+    async createAttempt(stepId: number): Promise<Attempt> {
+        const data = await this.request<{ attempts: Attempt[] }>('/attempts', {
             method: 'POST',
             body: JSON.stringify({
                 attempt: {
@@ -157,6 +183,14 @@ export class StepikApi {
             })
         });
         return data.attempts[0];
+    }
+
+    async getAttempt(stepId: number): Promise<Attempt> {
+        const data = await this.request<{ attempts: Attempt[] }>(`/attempts?step=${stepId}&user=me`);
+        if (data.attempts.length > 0) {
+            return data.attempts[0];
+        }
+        return this.createAttempt(stepId);
     }
 
     async submitSolution(attemptId: number, language: string, code: string): Promise<Submission> {
@@ -169,6 +203,19 @@ export class StepikApi {
                         language: language,
                         code: code
                     }
+                }
+            })
+        });
+        return data.submissions[0];
+    }
+
+    async submitQuiz(attemptId: number, reply: QuizReply): Promise<Submission> {
+        const data = await this.request<{ submissions: Submission[] }>('/submissions', {
+            method: 'POST',
+            body: JSON.stringify({
+                submission: {
+                    attempt: attemptId,
+                    reply: reply
                 }
             })
         });
