@@ -55,6 +55,7 @@
     "views": {
       "stepik": [
         {
+            "icon": "resources/stepik.svg",
           "id": "stepikCourses",
           "name": "Courses"
         }
