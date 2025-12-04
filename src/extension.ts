@@ -1,4 +1,7 @@
 import * as vscode from 'vscode';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
 import { StepikAuth } from './auth';
 import { StepikTreeProvider } from './providers/treeProvider';
 import { StepikApi } from './api/stepikApi';
@@ -9,12 +12,55 @@ import { Step } from './api/stepikApi';
 let api: StepikApi;
 let treeProvider: StepikTreeProvider;
 
+const STEPIK_WORKSPACE_DIR = path.join(os.homedir(), '.stepik');
+
+async function checkAndCreateWorkspace(): Promise<void> {
+    // Check if workspace is already open
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    
+    // Check if .stepik directory exists
+    const stepikDirExists = fs.existsSync(STEPIK_WORKSPACE_DIR);
+    
+    if (!stepikDirExists) {
+        const createChoice = await vscode.window.showInformationMessage(
+            'Stepik workspace folder not found. Create ~/.stepik for storing your solutions?',
+            'Create',
+            'Cancel'
+        );
+        
+        if (createChoice === 'Create') {
+            fs.mkdirSync(STEPIK_WORKSPACE_DIR, { recursive: true });
+            
+            const openChoice = await vscode.window.showInformationMessage(
+                'Workspace folder created. Open it now?',
+                'Open',
+                'Later'
+            );
+            
+            if (openChoice === 'Open') {
+                await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(STEPIK_WORKSPACE_DIR));
+            }
+        }
+    } else if (!workspaceFolders || workspaceFolders.length === 0) {
+        // .stepik exists but no workspace is open
+        const openChoice = await vscode.window.showInformationMessage(
+            'Open Stepik workspace folder (~/.stepik)?',
+            'Open',
+            'Later'
+        );
+        
+        if (openChoice === 'Open') {
+            await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(STEPIK_WORKSPACE_DIR));
+        }
+    }
+}
+
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
 
     const auth = new StepikAuth(context);
     api = new StepikApi(auth);
     treeProvider = new StepikTreeProvider(api);
-    const webview = new StepikWebview(context, api);
+    const webview = new StepikWebview(context, api, treeProvider);
     const submit = new StepikSubmit(api, treeProvider);
 
     // Register tree view
@@ -54,6 +100,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     if (await auth.isLoggedIn()) {
         treeProvider.refresh();
     }
+
+    // Check workspace setup
+    await checkAndCreateWorkspace();
 }
 
 export function deactivate() {}

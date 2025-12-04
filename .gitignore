@@ -1,1 +1,4 @@
 Stepik-API
+dist
+node_modules
+.vscode

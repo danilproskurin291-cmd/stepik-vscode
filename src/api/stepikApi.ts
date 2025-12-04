@@ -6,6 +6,14 @@ export interface Course {
     id: number;
     title: string;
     sections: number[];
+    is_certificate_issued?: boolean;
+}
+
+export interface Progress {
+    id: string;
+    is_passed: boolean;
+    n_steps: number;
+    n_steps_passed: number;
 }
 
 export interface Section {
@@ -233,6 +241,37 @@ export class StepikApi {
         try {
             const data = await this.request<{ progresses: Array<{ is_passed: boolean }> }>(
                 `/progresses/step-${stepId}`
+            );
+            return data.progresses[0] || null;
+        } catch {
+            return null;
+        }
+    }
+
+    async getStepsProgress(stepIds: number[]): Promise<Map<number, boolean>> {
+        const result = new Map<number, boolean>();
+        if (stepIds.length === 0) {
+            return result;
+        }
+        try {
+            const ids = stepIds.map(id => `step-${id}`).join('&ids[]=');
+            const data = await this.request<{ progresses: Array<{ id: string; is_passed: boolean }> }>(
+                `/progresses?ids[]=${ids}`
+            );
+            for (const progress of data.progresses) {
+                const stepId = parseInt(progress.id.replace('step-', ''));
+                result.set(stepId, progress.is_passed);
+            }
+        } catch {
+            // Ignore errors
+        }
+        return result;
+    }
+
+    async getCourseProgress(courseId: number): Promise<{ is_passed: boolean; n_steps_passed: number } | null> {
+        try {
+            const data = await this.request<{ progresses: Array<{ is_passed: boolean; n_steps_passed: number }> }>(
+                `/progresses/course-${courseId}`
             );
             return data.progresses[0] || null;
         } catch {

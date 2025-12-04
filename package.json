@@ -20,7 +20,8 @@
       },
       {
         "command": "stepik.logout",
-        "title": "Stepik: Logout"
+        "title": "Stepik: Logout",
+        "icon": "$(sign-out)"
       },
       {
         "command": "stepik.refresh",
@@ -59,7 +60,12 @@
         {
           "command": "stepik.refresh",
           "when": "view == stepikCourses",
-          "group": "navigation"
+          "group": "navigation@1"
+        },
+        {
+          "command": "stepik.logout",
+          "when": "view == stepikCourses",
+          "group": "navigation@2"
         }
       ],
       "editor/title": [

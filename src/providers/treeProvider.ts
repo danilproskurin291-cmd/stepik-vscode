@@ -3,6 +3,10 @@ import { StepikApi, Course, Lesson, Step, Section, Unit } from '../api/stepikApi
 
 type TreeItemType = 'course' | 'section' | 'lesson' | 'step';
 
+// Status colors
+const STATUS_PASSED = new vscode.ThemeColor('charts.green');
+const STATUS_STARTED = new vscode.ThemeColor('charts.yellow');
+
 interface TreeItemData {
     type: TreeItemType;
     course?: Course;
@@ -11,6 +15,7 @@ interface TreeItemData {
     step?: Step;
     courseName?: string;
     lessonTitle?: string;
+    stepsPassed?: Map<number, boolean>;
 }
 
 export class StepikTreeProvider implements vscode.TreeDataProvider<TreeItemData> {
@@ -32,9 +37,9 @@ export class StepikTreeProvider implements vscode.TreeDataProvider<TreeItemData>
             case 'section':
                 return this.createSectionItem(element.section!);
             case 'lesson':
-                return this.createLessonItem(element.lesson!);
+                return this.createLessonItem(element.lesson!, element.stepsPassed);
             case 'step':
-                return this.createStepItem(element.step!, element.courseName!, element.lessonTitle!);
+                return this.createStepItem(element.step!, element.courseName!, element.lessonTitle!, element.stepsPassed);
         }
     }
 
@@ -65,6 +70,10 @@ export class StepikTreeProvider implements vscode.TreeDataProvider<TreeItemData>
                     const lessonIds = units.map(u => u.lesson);
                     const lessons = await this.api.getLessons(lessonIds);
                     
+                    // Get step progress for all lessons to determine lesson status
+                    const allStepIds = lessons.flatMap(l => l.steps);
+                    const stepsPassed = await this.api.getStepsProgress(allStepIds);
+                    
                     // Sort by unit position
                     const unitPositions = new Map(units.map(u => [u.lesson, u.position]));
                     return lessons
@@ -72,20 +81,26 @@ export class StepikTreeProvider implements vscode.TreeDataProvider<TreeItemData>
                         .map(lesson => ({ 
                             type: 'lesson' as const, 
                             lesson,
-                            courseName: element.courseName
+                            courseName: element.courseName,
+                            stepsPassed
                         }));
                 }
 
                 case 'lesson': {
                     // Show steps
                     const steps = await this.api.getSteps(element.lesson!.steps);
+                    // Get progress for all steps
+                    const stepIds = steps.map(s => s.id);
+                    const stepsPassed = await this.api.getStepsProgress(stepIds);
+                    
                     return steps
                         .sort((a, b) => a.position - b.position)
                         .map(step => ({ 
                             type: 'step' as const, 
                             step,
                             courseName: element.courseName,
-                            lessonTitle: element.lesson!.title
+                            lessonTitle: element.lesson!.title,
+                            stepsPassed
                         }));
                 }
 
@@ -109,7 +124,14 @@ export class StepikTreeProvider implements vscode.TreeDataProvider<TreeItemData>
 
     private createCourseItem(course: Course): vscode.TreeItem {
         const item = new vscode.TreeItem(course.title, vscode.TreeItemCollapsibleState.Collapsed);
-        item.iconPath = new vscode.ThemeIcon('book');
+        
+        // Course status: certificate = green, started = yellow, not started = default
+        if (course.is_certificate_issued) {
+            item.iconPath = new vscode.ThemeIcon('book', STATUS_PASSED);
+        } else {
+            // Will be updated when we know if any lesson is started
+            item.iconPath = new vscode.ThemeIcon('book');
+        }
         item.contextValue = 'course';
         return item;
     }
@@ -121,19 +143,47 @@ export class StepikTreeProvider implements vscode.TreeDataProvider<TreeItemData>
         return item;
     }
 
-    private createLessonItem(lesson: Lesson): vscode.TreeItem {
+    private createLessonItem(lesson: Lesson, stepsPassed?: Map<number, boolean>): vscode.TreeItem {
         const item = new vscode.TreeItem(lesson.title, vscode.TreeItemCollapsibleState.Collapsed);
-        item.iconPath = new vscode.ThemeIcon('file-text');
+        
+        // Lesson status based on steps
+        if (stepsPassed && lesson.steps.length > 0) {
+            const passedCount = lesson.steps.filter(stepId => stepsPassed.get(stepId)).length;
+            
+            if (passedCount === lesson.steps.length) {
+                // All steps passed = green
+                item.iconPath = new vscode.ThemeIcon('file-text', STATUS_PASSED);
+            } else if (passedCount > 0) {
+                // At least one passed = yellow
+                item.iconPath = new vscode.ThemeIcon('file-text', STATUS_STARTED);
+            } else {
+                // None passed = default
+                item.iconPath = new vscode.ThemeIcon('file-text');
+            }
+        } else {
+            item.iconPath = new vscode.ThemeIcon('file-text');
+        }
+        
         item.contextValue = 'lesson';
         return item;
     }
 
-    private createStepItem(step: Step, courseName: string, lessonTitle: string): vscode.TreeItem {
+    private createStepItem(step: Step, courseName: string, lessonTitle: string, stepsPassed?: Map<number, boolean>): vscode.TreeItem {
         const stepType = step.block.name;
         const label = `Step ${step.position}: ${this.getStepTypeLabel(stepType)}`;
         
         const item = new vscode.TreeItem(label, vscode.TreeItemCollapsibleState.None);
-        item.iconPath = this.getStepIcon(stepType);
+        
+        // Step status: passed = green, not passed = default
+        const isPassed = stepsPassed?.get(step.id) || false;
+        const iconName = this.getStepIconName(stepType);
+        
+        if (isPassed) {
+            item.iconPath = new vscode.ThemeIcon(iconName, STATUS_PASSED);
+        } else {
+            item.iconPath = new vscode.ThemeIcon(iconName);
+        }
+        
         item.contextValue = 'step';
         item.command = {
             command: 'stepik.openStep',
@@ -170,5 +220,17 @@ export class StepikTreeProvider implements vscode.TreeDataProvider<TreeItemData>
             'number': 'symbol-number'
         };
         return new vscode.ThemeIcon(icons[type] || 'circle-outline');
+    }
+
+    private getStepIconName(type: string): string {
+        const icons: { [key: string]: string } = {
+            'code': 'code',
+            'choice': 'checklist',
+            'text': 'book',
+            'video': 'play-circle',
+            'string': 'whole-word',
+            'number': 'symbol-number'
+        };
+        return icons[type] || 'circle-outline';
     }
 }

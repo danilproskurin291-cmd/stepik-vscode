@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
 import { StepikApi, Step, Attempt, QuizReply } from '../api/stepikApi';
+import { StepikTreeProvider } from '../providers/treeProvider';
 
 interface StepContext {
     step: Step;
@@ -24,7 +25,8 @@ export class StepikWebview {
 
     constructor(
         private context: vscode.ExtensionContext,
-        private api: StepikApi
+        private api: StepikApi,
+        private treeProvider: StepikTreeProvider
     ) {}
 
     async showStep(stepContext: StepContext): Promise<void> {
@@ -108,6 +110,7 @@ export class StepikWebview {
             
             if (result.status === 'correct') {
                 vscode.window.showInformationMessage(`✅ Correct! Score: ${result.score}`);
+                this.treeProvider.refresh();
             } else {
                 const hint = result.hint || result.feedback || 'Wrong answer';
                 vscode.window.showErrorMessage(`❌ ${result.status}: ${hint}`);
