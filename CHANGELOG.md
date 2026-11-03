@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.4.0] - 2026-11-03
+
+### Added
+
+- Solution files are now always stored in `~/.stepik`, regardless of which
+  folder is open in VS Code (or when no folder is open at all). The extension
+  creates the folder automatically, so it no longer has to be opened as a
+  workspace.
+- The file-to-step mapping is kept in `~/.stepik/.stepik/mapping.json`.
+  Mappings from folders that were opened as a workspace before 0.4.0 are still
+  read as a fallback, so existing solutions can be submitted without reopening
+  the step.
+
+### Changed
+
+- The first-run prompt that offered to create and open `~/.stepik` was removed.
+  The solutions folder is prepared when the extension starts.
+
 ## [0.3.3] - 2026-11-03
 
 ### Fixed

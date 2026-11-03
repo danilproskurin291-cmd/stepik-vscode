@@ -1,65 +1,28 @@
 import * as vscode from 'vscode';
-import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
 import { StepikAuth } from './auth';
 import { StepikTreeProvider } from './providers/treeProvider';
 import { StepikApi } from './api/stepikApi';
 import { StepikWebview } from './views/webview';
 import { StepikSubmit } from './submit';
 import { StepContext } from './stepContext';
+import { ensureStepikRoot, getStepikRoot } from './stepikPaths';
 
 let api: StepikApi;
 let treeProvider: StepikTreeProvider;
 
-const STEPIK_WORKSPACE_DIR = path.join(os.homedir(), '.stepik');
-
-async function checkAndCreateWorkspace(): Promise<void> {
-    // Check if workspace is already open
-    const workspaceFolders = vscode.workspace.workspaceFolders;
-    
-    // Check if .stepik directory exists
-    const stepikDirExists = fs.existsSync(STEPIK_WORKSPACE_DIR);
-    
-    if (!stepikDirExists) {
-        const createChoice = await vscode.window.showInformationMessage(
-            'Stepik workspace folder not found. Create ~/.stepik for storing your solutions?',
-            'Create',
-            'Cancel'
+/**
+ * Solutions are stored in `~/.stepik` regardless of the open workspace. The
+ * folder is created automatically; it never has to be opened as a workspace.
+ */
+function ensureSolutionDirectory(outputChannel: vscode.OutputChannel): void {
+    try {
+        ensureStepikRoot();
+        outputChannel.appendLine(`[Solutions] Папка решений: ${getStepikRoot()}`);
+    } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        vscode.window.showErrorMessage(
+            `Не удалось создать папку решений ${getStepikRoot()}: ${detail}`
         );
-        
-        if (createChoice === 'Create') {
-            try {
-                fs.mkdirSync(STEPIK_WORKSPACE_DIR, { recursive: true });
-            } catch (error) {
-                const detail = error instanceof Error ? error.message : String(error);
-                vscode.window.showErrorMessage(
-                    `Не удалось создать папку ${STEPIK_WORKSPACE_DIR}: ${detail}`
-                );
-                return;
-            }
-            
-            const openChoice = await vscode.window.showInformationMessage(
-                'Workspace folder created. Open it now?',
-                'Open',
-                'Later'
-            );
-            
-            if (openChoice === 'Open') {
-                await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(STEPIK_WORKSPACE_DIR));
-            }
-        }
-    } else if (!workspaceFolders || workspaceFolders.length === 0) {
-        // .stepik exists but no workspace is open
-        const openChoice = await vscode.window.showInformationMessage(
-            'Open Stepik workspace folder (~/.stepik)?',
-            'Open',
-            'Later'
-        );
-        
-        if (openChoice === 'Open') {
-            await vscode.commands.executeCommand('vscode.openFolder', vscode.Uri.file(STEPIK_WORKSPACE_DIR));
-        }
     }
 }
 
@@ -203,8 +166,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         treeProvider.refresh();
     }
 
-    // Check workspace setup
-    await checkAndCreateWorkspace();
+    // Prepare the solutions folder. It is independent of the open workspace
+    // and does not need to be opened in VS Code.
+    ensureSolutionDirectory(outputChannel);
 }
 
 export function deactivate() {}

@@ -25,7 +25,7 @@ step navigation, and a built-in video player.
 - [Comments and solutions](#comments-and-solutions)
 - [Math](#math)
 - [Commands and shortcuts](#commands-and-shortcuts)
-- [Workspace](#workspace)
+- [Solutions folder](#solutions-folder)
 - [Updating and uninstalling](#updating-and-uninstalling)
 - [Troubleshooting](#troubleshooting)
 - [Building from source](#building-from-source)
@@ -42,7 +42,9 @@ step navigation, and a built-in video player.
 - **Back** and **Next** buttons for navigation inside a section;
 - background preloading of neighbouring steps;
 - solution submission from the editor;
-- `~/.stepik` workspace organized by course and lesson;
+- `~/.stepik` solutions folder organized by course and lesson;
+- the solutions folder is created automatically and does not need to be opened
+  in VS Code;
 - all graded Stepik problem types;
 - exam sections with a timer and submission lock;
 - built-in video player;
@@ -68,12 +70,12 @@ and your OAuth credentials.
 1. Open the
    [Releases](https://github.com/danilproskurin291-cmd/stepik-vscode/releases)
    page.
-2. Download the latest `stepik-vscode-0.3.3.vsix`.
+2. Download the latest `stepik-vscode-0.4.0.vsix`.
 3. Install it in one of these ways:
    - from a terminal:
 
      ```bash
-     code --install-extension stepik-vscode-0.3.3.vsix
+     code --install-extension stepik-vscode-0.4.0.vsix
      ```
 
    - or in VS Code: **Extensions → … → Install from VSIX…**, then select the
@@ -90,25 +92,25 @@ Node.js 18+ is required.
 npm ci
 npm run build
 npx @vscode/vsce package
-code --install-extension stepik-vscode-0.3.3.vsix
+code --install-extension stepik-vscode-0.4.0.vsix
 ```
 
 Build output: `dist/extension.js` and `dist/audioWorker.js`.
-Installable package: `stepik-vscode-0.3.3.vsix`.
+Installable package: `stepik-vscode-0.4.0.vsix`.
 
 ## First launch
 
 1. Click the **Stepik** icon in the activity bar.
-2. If `~/.stepik` does not exist yet, the extension offers to create it.
-   Accept and open it as the workspace folder.
+2. The extension automatically creates the `~/.stepik` solutions folder. It
+   does not need to be opened as a workspace.
 3. Log in with the icon in the panel title or the **Stepik: Login** command.
 4. Enter your Stepik OAuth application credentials.
 5. Choose a course with **Stepik: Select Course**.
 6. Open any step in the tree.
 
-The workspace is needed for solution files and the file-to-step mapping. If you
-open another folder, the extension cannot associate a file with a problem when
-submitting. See [Workspace](#workspace) for details.
+The solutions folder is independent of the project opened in VS Code. Solution
+files and the file-to-step mapping are always stored in `~/.stepik`. See
+[Solutions folder](#solutions-folder) for details.
 
 ## OAuth setup
 
@@ -201,9 +203,9 @@ stays beside it.
 The extension reuses the latest attempt. The result appears in a notification,
 and error details are written to **Output → Stepik**.
 
-If the file is not in the `~/.stepik` workspace or was not created by opening a
-step, submission fails because the extension cannot find the file-to-step
-mapping. Open the step from the tree again in that case.
+If the file was not created by opening a step or was moved after creation,
+submission fails because the extension cannot find the file-to-step mapping.
+Open the step from the tree again in that case.
 
 The template file is created only once. If the file already exists, the
 extension does not overwrite it, so you can keep working safely.
@@ -434,9 +436,10 @@ Shortcuts in the comment or solution editor:
 On macOS, use `Cmd` instead of `Ctrl`. The extension has no separate user
 settings: everything is configured by logging in and selecting a course.
 
-## Workspace
+## Solutions folder
 
-By default, solutions are stored in `~/.stepik`:
+Solutions are always stored in `~/.stepik`, regardless of which folder is open
+in VS Code:
 
 ```text
 ~/.stepik/
@@ -460,12 +463,13 @@ which step.
 
 Therefore:
 
-- open `~/.stepik` as the workspace folder;
-- do not move solution files manually without reopening the step;
-- if another folder is open, submitting from the editor will not work.
+- `~/.stepik` does not need to be opened as a workspace — the extension creates
+  it automatically on first launch;
+- you can work in any project: solutions are still saved in `~/.stepik`;
+- do not move solution files manually without reopening the step.
 
-On first launch, the extension offers to create and open `~/.stepik`. You can
-open it later with **File → Open Folder…**.
+If `~/.stepik` is opened in VS Code anyway, the extension keeps working as
+usual.
 
 ## Updating and uninstalling
 
@@ -512,8 +516,8 @@ credentials from VS Code.
 
 ### Submission does not work
 
-- Make sure the `~/.stepik` workspace is open.
-- Reopen the step from the tree to recreate the file-to-step mapping.
+- Make sure the `~/.stepik` folder is writable.
+- Reopen the step from the tree to create or update the file-to-step mapping.
 - Check that the file was not moved after creation.
 - For an exam, check that the session is active and time has not expired.
 
@@ -562,7 +566,7 @@ npx tsc --noEmit
 ```
 
 Build output: `dist/extension.js` and `dist/audioWorker.js`.
-Installable package: `stepik-vscode-0.3.3.vsix`.
+Installable package: `stepik-vscode-0.4.0.vsix`.
 
 ## Limitations
 

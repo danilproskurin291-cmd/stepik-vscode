@@ -3,7 +3,7 @@
 	"displayName": "Stepik",
 	"description": "Solve Stepik problems, read discussions and post comments in VS Code",
 	"author": "Danil Proskurin (꧁༒☬𝔉𝔜𝔡𝔡𝔡𝔡𝔰𝔰☬༒꧂)",
-	"version": "0.3.3",
+	"version": "0.4.0",
 	"publisher": "FYddddss",
 	"license": "GPL-3.0-only",
 	"engines": {

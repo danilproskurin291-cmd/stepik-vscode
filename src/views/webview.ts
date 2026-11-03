@@ -28,6 +28,7 @@ import {
 } from '../api/stepikApi';
 import { StepikTreeProvider } from '../providers/treeProvider';
 import { StepContext } from '../stepContext';
+import { getMappingPath, ensureStepikRoot } from '../stepikPaths';
 import { getStepTypeTitle } from '../stepTypes';
 import { combineSubmissionFeedback } from '../submissionFeedback';
 import {
@@ -2559,7 +2560,7 @@ export class StepikWebview implements vscode.Disposable {
                     } catch (error) {
                         const detail = error instanceof Error ? error.message : String(error);
                         this.outputChannel.appendLine(
-                            `[Workspace] Не удалось создать файл решения: ${detail}`
+                            `[Solutions] Не удалось создать файл решения: ${detail}`
                         );
                         vscode.window.showErrorMessage(
                             `Не удалось создать файл решения: ${detail}`
@@ -2950,16 +2951,22 @@ export class StepikWebview implements vscode.Disposable {
         };
         const courseDir = safeName(courseName);
         const lessonDir = safeName(lessonTitle);
-        
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-        if (!workspaceFolder) {
-            vscode.window.showErrorMessage('Please open a workspace folder first');
+
+        // Solutions always live in `~/.stepik`, even when another folder (or no
+        // folder at all) is open in VS Code. The folder is created on demand.
+        let solutionRoot: string;
+        try {
+            solutionRoot = path.resolve(ensureStepikRoot());
+        } catch (error) {
+            const detail = error instanceof Error ? error.message : String(error);
+            vscode.window.showErrorMessage(
+                `Не удалось создать папку решений ~/.stepik: ${detail}`
+            );
             return;
         }
 
-        const workspacePath = path.resolve(workspaceFolder.uri.fsPath);
-        const dirPath = path.resolve(workspacePath, courseDir, lessonDir);
-        const relativeDir = path.relative(workspacePath, dirPath);
+        const dirPath = path.resolve(solutionRoot, courseDir, lessonDir);
+        const relativeDir = path.relative(solutionRoot, dirPath);
         if (relativeDir.startsWith('..') || path.isAbsolute(relativeDir)) {
             vscode.window.showErrorMessage('Некорректное имя курса или урока.');
             return;
@@ -3000,11 +3007,8 @@ export class StepikWebview implements vscode.Disposable {
         language: string,
         sectionId?: number
     ): void {
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-        if (!workspaceFolder) {return;}
+        const mappingPath = getMappingPath();
 
-        const mappingPath = path.join(workspaceFolder.uri.fsPath, '.stepik', 'mapping.json');
-        
         let mapping: {
             [key: string]: { stepId: number; language: string; sectionId?: number };
         } = {};
