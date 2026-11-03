@@ -1,8 +1,13 @@
-Stepik-API
-dist
-node_modules
-.vscode
-task.md 
-TODO.md
-package-lock.json
+node_modules/
+.vscode/
 *.vsix
+*.log
+.DS_Store
+Thumbs.db
+
+# Local recordings and scratch files
+recordings/
+*.bak-*
+math-test*
+Stepik-API/
+.stepik/

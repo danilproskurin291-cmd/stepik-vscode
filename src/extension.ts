@@ -7,7 +7,7 @@ import { StepikTreeProvider } from './providers/treeProvider';
 import { StepikApi } from './api/stepikApi';
 import { StepikWebview } from './views/webview';
 import { StepikSubmit } from './submit';
-import { Step } from './api/stepikApi';
+import { StepContext } from './stepContext';
 
 let api: StepikApi;
 let treeProvider: StepikTreeProvider;
@@ -29,7 +29,15 @@ async function checkAndCreateWorkspace(): Promise<void> {
         );
         
         if (createChoice === 'Create') {
-            fs.mkdirSync(STEPIK_WORKSPACE_DIR, { recursive: true });
+            try {
+                fs.mkdirSync(STEPIK_WORKSPACE_DIR, { recursive: true });
+            } catch (error) {
+                const detail = error instanceof Error ? error.message : String(error);
+                vscode.window.showErrorMessage(
+                    `Не удалось создать папку ${STEPIK_WORKSPACE_DIR}: ${detail}`
+                );
+                return;
+            }
             
             const openChoice = await vscode.window.showInformationMessage(
                 'Workspace folder created. Open it now?',
@@ -72,22 +80,40 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         showCollapseAll: true
     });
 
-    // Update tree view title based on selected course
+    // Update tree view title based on selected course. The activity bar
+    // container is already named "Stepik", so do not repeat that prefix in the
+    // view title (course titles on Stepik may start with "Stepik:" too).
     const updateTreeTitle = () => {
         const course = treeProvider.getSelectedCourse();
-        treeView.title = course ? `Stepik: ${course.title}` : 'Stepik: Select Course';
+        if (course) {
+            const title = course.title.replace(/^(?:\s*Stepik\s*:\s*)+/i, '').trim();
+            treeView.title = title || course.title;
+        } else {
+            treeView.title = 'Выберите курс';
+        }
     };
     updateTreeTitle();
 
+    // The provider restores the selected course asynchronously, so keep the
+    // view title in sync with every tree refresh.
+    context.subscriptions.push(
+        treeProvider.onDidChangeTreeData(() => updateTreeTitle())
+    );
+
     // Register commands
     context.subscriptions.push(
+        webview,
+
         vscode.commands.registerCommand('stepik.login', async () => {
             await auth.login();
+            api.clearCache();
             treeProvider.refresh();
         }),
 
         vscode.commands.registerCommand('stepik.logout', async () => {
             await auth.logout();
+            api.clearCache();
+            webview.resetForLogout();
             treeProvider.refresh();
         }),
 
@@ -100,15 +126,75 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             updateTreeTitle();
         }),
 
-        vscode.commands.registerCommand('stepik.openStep', async (stepContext: { step: Step; courseName: string; lessonTitle: string }) => {
+        vscode.commands.registerCommand('stepik.openStep', async (stepContext: StepContext) => {
+            if (!stepContext?.step) {
+                vscode.window.showErrorMessage('Не удалось определить шаг Stepik.');
+                return;
+            }
             await webview.showStep(stepContext);
         }),
+
+        vscode.commands.registerCommand(
+            'stepik.startExam',
+            async (args?: { sectionId?: number; sectionTitle?: string }) => {
+                const sectionId = args?.sectionId;
+                if (!sectionId) {
+                    vscode.window.showErrorMessage('Не удалось определить экзаменационную секцию.');
+                    return;
+                }
+
+                try {
+                    const state = await treeProvider.getSectionAccessById(sectionId, true);
+                    if (!state) {
+                        vscode.window.showErrorMessage('Не удалось загрузить экзаменационную секцию.');
+                        return;
+                    }
+
+                    const { access } = state;
+                    let examSession = access.examSession;
+                    if (access.isExam && !examSession) {
+                        if (!access.canStartExam) {
+                            vscode.window.showWarningMessage(
+                                access.reason || 'Экзамен сейчас недоступен.'
+                            );
+                            return;
+                        }
+
+                        const minutes = state.section.exam_duration_minutes || 120;
+                        const confirmation = await vscode.window.showWarningMessage(
+                            `Начать экзамен «${state.section.title}»? После старта запустится таймер на ${minutes} мин, и материалы экзамена станут доступны.`,
+                            { modal: true },
+                            'Начать экзамен'
+                        );
+                        if (confirmation !== 'Начать экзамен') {
+                            return;
+                        }
+
+                        examSession = await api.createExamSession(sectionId);
+                        treeProvider.forceRefresh();
+                    }
+
+                    const firstStep = await treeProvider.getFirstStep(sectionId);
+                    if (!firstStep) {
+                        vscode.window.showInformationMessage(
+                            'В экзаменационной секции нет доступных шагов.'
+                        );
+                        return;
+                    }
+                    await webview.showStep(firstStep, examSession);
+                } catch (error) {
+                    const detail = error instanceof Error ? error.message : String(error);
+                    vscode.window.showErrorMessage(`Не удалось начать экзамен: ${detail}`);
+                }
+            }
+        ),
 
         vscode.commands.registerCommand('stepik.submit', async () => {
             await submit.submitCurrentFile();
         }),
 
         treeView,
+        treeProvider,
         outputChannel
     );
 

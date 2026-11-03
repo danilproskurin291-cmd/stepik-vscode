@@ -1,0 +1,16 @@
+.vscode/**
+src/**
+node_modules/**
+.git/**
+.gitignore
+.vscodeignore
+PUBLISHING.md
+**/*.ts
+**/*.map
+**/*.vsix
+dist-test/**
+recordings/**
+test-*.mjs
+test-*.cjs
+test-*.js
+tsconfig.json

@@ -1,124 +1,159 @@
 {
-  "name": "stepik-vscode",
-  "displayName": "Stepik",
-  "description": "Solve Stepik problems in VS Code",
-  "version": "0.0.2",
-  "publisher": "sudo-su-mt",
-  "engines": {
-    "vscode": "^1.85.0"
-  },
-  "categories": [
-    "Education",
-    "Other"
-  ],
-  "activationEvents": [
-    "onView:stepikCourses",
-    "onCommand:stepik.login",
-    "onCommand:stepik.selectCourse"
-  ],
-  "main": "./dist/extension.js",
-  "contributes": {
-    "commands": [
-      {
-        "command": "stepik.login",
-        "title": "Stepik: Login",
-        "icon": "$(sign-in)"
-      },
-      {
-        "command": "stepik.logout",
-        "title": "Stepik: Logout",
-        "icon": "$(sign-out)"
-      },
-      {
-        "command": "stepik.refresh",
-        "title": "Stepik: Refresh",
-        "icon": "$(refresh)"
-      },
-      {
-        "command": "stepik.openStep",
-        "title": "Stepik: Open Step"
-      },
-      {
-        "command": "stepik.submit",
-        "title": "Stepik: Submit Solution",
-        "icon": "$(cloud-upload)"
-      },
-      {
-        "command": "stepik.selectCourse",
-        "title": "Stepik: Select Course",
-        "icon": "$(book)"
-      }
-    ],
-    "viewsContainers": {
-      "activitybar": [
-        {
-          "id": "stepik",
-          "title": "Stepik",
-          "icon": "resources/stepik.svg"
-        }
-      ]
-    },
-    "views": {
-      "stepik": [
-        {
-            "icon": "resources/stepik.svg",
-          "id": "stepikCourses",
-          "name": "Courses"
-        }
-      ]
-    },
-    "menus": {
-      "view/title": [
-        {
-          "command": "stepik.selectCourse",
-          "when": "view == stepikCourses",
-          "group": "navigation@0"
-        },
-        {
-          "command": "stepik.refresh",
-          "when": "view == stepikCourses",
-          "group": "navigation@1"
-        },
-        {
-          "command": "stepik.logout",
-          "when": "view == stepikCourses",
-          "group": "navigation@2"
-        },
-        {
-          "command": "stepik.login",
-          "when": "view == stepikCourses",
-          "group": "navigation@3"
-        }
-      ],
-      "editor/title": [
-        {
-          "command": "stepik.submit",
-          "when": "resourceScheme == file",
-          "group": "navigation"
-        }
-      ]
-    }
-  },
-  "scripts": {
-    "vscode:prepublish": "npm run build",
-    "build": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --minify",
-    "watch": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --sourcemap --watch",
-    "lint": "eslint src --ext ts"
-  },
-  "devDependencies": {
-    "@types/node": "^20.10.0",
-    "@types/vscode": "^1.85.0",
-    "@typescript-eslint/eslint-plugin": "^6.13.0",
-    "@typescript-eslint/parser": "^6.13.0",
-    "esbuild": "^0.19.8",
-    "eslint": "^8.54.0",
-    "typescript": "^5.3.2"
-  },
-  "dependencies": {
-    "node-fetch": "^3.3.2"
-  },
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/su-mt/stepik-vscode.git"
-  }
+	"name": "stepik-vscode",
+	"displayName": "Stepik",
+	"description": "Solve Stepik problems, read discussions and post comments in VS Code",
+	"author": "Danil Proskurin (꧁༒☬𝔉𝔜𝔡𝔡𝔡𝔡𝔰𝔰☬༒꧂)",
+	"version": "0.3.3",
+	"publisher": "FYddddss",
+	"license": "GPL-3.0-only",
+	"engines": {
+		"vscode": "^1.85.0"
+	},
+	"categories": [
+		"Education",
+		"Other"
+	],
+	"keywords": [
+		"stepik",
+		"education",
+		"python",
+		"courses",
+		"comments"
+	],
+	"activationEvents": [
+		"onView:stepikCourses",
+		"onCommand:stepik.login",
+		"onCommand:stepik.selectCourse",
+		"onCommand:stepik.startExam"
+	],
+	"main": "./dist/extension.js",
+	"contributes": {
+		"commands": [
+			{
+				"command": "stepik.login",
+				"title": "Stepik: Login",
+				"icon": "$(sign-in)"
+			},
+			{
+				"command": "stepik.logout",
+				"title": "Stepik: Logout",
+				"icon": "$(sign-out)"
+			},
+			{
+				"command": "stepik.refresh",
+				"title": "Stepik: Refresh",
+				"icon": "$(refresh)"
+			},
+			{
+				"command": "stepik.openStep",
+				"title": "Stepik: Open Step"
+			},
+			{
+				"command": "stepik.startExam",
+				"title": "Stepik: Start Exam",
+				"icon": "$(play)"
+			},
+			{
+				"command": "stepik.submit",
+				"title": "Stepik: Submit Solution",
+				"icon": "$(cloud-upload)"
+			},
+			{
+				"command": "stepik.selectCourse",
+				"title": "Stepik: Select Course",
+				"icon": "$(book)"
+			}
+		],
+		"viewsContainers": {
+			"activitybar": [
+				{
+					"id": "stepik",
+					"title": "Stepik",
+					"icon": "resources/stepik.svg"
+				}
+			]
+		},
+		"views": {
+			"stepik": [
+				{
+					"icon": "resources/stepik.svg",
+					"id": "stepikCourses",
+					"name": "Courses"
+				}
+			]
+		},
+		"menus": {
+			"commandPalette": [
+				{
+					"command": "stepik.openStep",
+					"when": "false"
+				},
+				{
+					"command": "stepik.startExam",
+					"when": "false"
+				}
+			],
+			"view/title": [
+				{
+					"command": "stepik.selectCourse",
+					"when": "view == stepikCourses",
+					"group": "navigation@0"
+				},
+				{
+					"command": "stepik.refresh",
+					"when": "view == stepikCourses",
+					"group": "navigation@1"
+				},
+				{
+					"command": "stepik.logout",
+					"when": "view == stepikCourses",
+					"group": "navigation@2"
+				},
+				{
+					"command": "stepik.login",
+					"when": "view == stepikCourses",
+					"group": "navigation@3"
+				}
+			],
+			"editor/title": [
+				{
+					"command": "stepik.submit",
+					"when": "resourceScheme == file",
+					"group": "navigation"
+				}
+			]
+		}
+	},
+	"scripts": {
+		"vscode:prepublish": "npm run build",
+		"build": "esbuild ./src/extension.ts ./src/audio/audioWorker.ts --bundle --outdir=dist --entry-names=[name] --external:vscode --format=cjs --platform=node --minify",
+		"watch": "esbuild ./src/extension.ts ./src/audio/audioWorker.ts --bundle --outdir=dist --entry-names=[name] --external:vscode --format=cjs --platform=node --sourcemap --watch",
+		"lint": "eslint src --ext ts"
+	},
+	"devDependencies": {
+		"@types/markdown-it": "^14.2.0",
+		"@types/node": "^20.10.0",
+		"@types/vscode": "^1.85.0",
+		"@typescript-eslint/eslint-plugin": "^6.13.0",
+		"@typescript-eslint/parser": "^6.13.0",
+		"esbuild": "^0.19.8",
+		"eslint": "^8.54.0",
+		"typescript": "^5.3.2"
+	},
+	"dependencies": {
+		"@audio/decode-mp4": "^1.3.1",
+		"highlight.js": "^11.12.0",
+		"katex": "^0.16.47",
+		"markdown-it": "^14.3.3",
+		"node-fetch": "^3.3.2",
+		"wasm-media-encoders": "^0.7.0"
+	},
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/danilproskurin291-cmd/stepik-vscode.git"
+	},
+	"homepage": "https://github.com/danilproskurin291-cmd/stepik-vscode#readme",
+	"bugs": {
+		"url": "https://github.com/danilproskurin291-cmd/stepik-vscode/issues"
+	}
 }

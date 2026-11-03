@@ -1,6 +1,53 @@
 import { StepikAuth } from '../auth';
 
 const BASE_URL = 'https://stepik.org/api';
+const REQUEST_TIMEOUT_MS = 30_000;
+const IDS_PER_REQUEST = 100;
+
+function chunkItems<T>(items: T[], size: number = IDS_PER_REQUEST): T[][] {
+    const result: T[][] = [];
+    for (let i = 0; i < items.length; i += size) {
+        result.push(items.slice(i, i + size));
+    }
+    return result;
+}
+
+async function fetchWithTimeout(
+    url: string,
+    init: RequestInit = {},
+    timeoutMs: number = REQUEST_TIMEOUT_MS
+): Promise<Response> {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        return await fetch(url, { ...init, signal: controller.signal });
+    } catch (error) {
+        if (controller.signal.aborted) {
+            throw new Error(`Stepik не ответил за ${Math.round(timeoutMs / 1000)} с. Попробуйте ещё раз.`);
+        }
+        throw error;
+    } finally {
+        clearTimeout(timer);
+    }
+}
+
+/** Stepik uses several key shapes for a single exam session. */
+interface ExamSessionPayload {
+    'exam-sessions'?: ExamSession[] | ExamSession;
+    exam_sessions?: ExamSession[] | ExamSession;
+    'exam-session'?: ExamSession;
+}
+
+function extractExamSession(data: ExamSessionPayload): ExamSession | undefined {
+    const plural = data['exam-sessions'] ?? data.exam_sessions;
+    if (Array.isArray(plural)) {
+        return plural[0];
+    }
+    if (plural && typeof plural === 'object') {
+        return plural;
+    }
+    return data['exam-session'];
+}
 
 export interface Course {
     id: number;
@@ -8,6 +55,12 @@ export interface Course {
     sections: number[];
     is_certificate_issued?: boolean;
     progress: string;  // progress ID like "course-12345"
+    begin_date?: string | null;
+    end_date?: string | null;
+    soft_deadline?: string | null;
+    hard_deadline?: string | null;
+    grading_policy?: string;
+    is_active?: boolean;
 }
 
 export interface Progress {
@@ -26,6 +79,21 @@ export interface Section {
     course: number;
     position: number;
     progress: string;  // progress ID
+    is_active?: boolean;
+    is_exam?: boolean;
+    is_exam_without_progress?: boolean;
+    is_random_exam?: boolean;
+    exam_duration_minutes?: number;
+    exam_session?: number | ExamSession | null;
+    proctor_session?: number | ProctorSession | null;
+    required_section?: number | null;
+    required_percent?: number;
+    is_requirement_satisfied?: boolean;
+    begin_date?: string | null;
+    end_date?: string | null;
+    soft_deadline?: string | null;
+    hard_deadline?: string | null;
+    grading_policy?: string;
 }
 
 export interface Unit {
@@ -33,6 +101,13 @@ export interface Unit {
     lesson: number;
     section: number;
     position: number;
+    assignments?: number[];
+    is_active?: boolean;
+    begin_date?: string | null;
+    end_date?: string | null;
+    soft_deadline?: string | null;
+    hard_deadline?: string | null;
+    grading_policy?: string;
 }
 
 export interface Lesson {
@@ -42,9 +117,72 @@ export interface Lesson {
     progress: string;  // progress ID like "lesson-12345"
 }
 
+export interface ExamSession {
+    id: number;
+    begin_date?: string | null;
+    end_date?: string | null;
+    time_left?: number | null;
+    section?: number;
+    random_exam?: number | null;
+}
+
+export interface ProctorSession {
+    id: number;
+    start_date?: string | null;
+    end_date?: string | null;
+    start_url?: string;
+    is_finished?: boolean;
+}
+
+export interface Assignment {
+    id: number;
+    unit: number;
+    step: number;
+    lesson?: number;
+}
+
 export interface ChoiceOption {
     text: string;
     is_correct?: boolean;
+    feedback?: string;
+}
+
+/** One item of the HTML/CSS checker. */
+export interface HtmlChecklistTest {
+    type: string;
+    data?: { [key: string]: unknown };
+}
+
+export interface HtmlChecklistItem {
+    name?: string;
+    selector?: string;
+    tests?: HtmlChecklistTest[];
+}
+
+/** One quality variant of a Stepik-hosted video. */
+export interface VideoUrl {
+    quality: string;
+    url: string;
+}
+
+/** Subtitle track attached to a video step. */
+export interface VideoSubtitleFile {
+    file: string;
+    language: string;
+}
+
+/**
+ * Video metadata. Stepik stores videos on its CDN and exposes the available
+ * MP4 variants plus a poster and the original source in `filename`.
+ */
+export interface StepVideo {
+    id: number;
+    thumbnail: string;
+    urls: VideoUrl[];
+    duration: number;
+    status: string;
+    upload_date?: string;
+    filename?: string;
 }
 
 export interface Step {
@@ -53,9 +191,16 @@ export interface Step {
     position: number;
     status: string;
     progress: string;  // progress ID like "step-12345"
+    discussions_count?: number;
+    discussion_proxy?: string;
+    discussion_threads?: string[];
+    is_solutions_unlocked?: boolean;
+    solutions_unlocked_attempts?: number;
     block: {
         name: string;
         text: string;
+        video?: StepVideo;
+        subtitle_files?: VideoSubtitleFile[];
         options?: {
             code_templates?: { [key: string]: string };
             limits?: { [key: string]: { time: number; memory: number } };
@@ -66,17 +211,75 @@ export interface Step {
             // String/Number options
             pattern?: string;
             case_sensitive?: boolean;
+            use_re?: boolean;
+            match_substring?: boolean;
+            // HTML/CSS quiz
+            html_template?: string;
+            css_template?: string;
+            checklist?: HtmlChecklistItem[];
+            // Dataset/code limits
+            time_limit?: number;
+            is_run_user_code_allowed?: boolean;
+            // Free answer
+            is_attachments_enabled?: boolean;
+            is_html_enabled?: boolean;
+            manual_scoring?: boolean;
         };
     };
+}
+
+export interface MatchingPair {
+    first: string;
+    second: string;
+}
+
+export interface FillBlanksComponent {
+    type: string;  // "text", "input" or "select"
+    text?: string;
+    options?: string[];
+}
+
+export interface TableColumnChoice {
+    name: string;
+    answer: boolean;
+}
+
+export interface TableRowChoice {
+    name_row: string;
+    columns: TableColumnChoice[];
+}
+
+/**
+ * Datasets are generated per attempt by Stepik. Their shape depends on the
+ * quiz plugin, so this interface describes a union of the known shapes.
+ * The API can also return an empty string instead of an object.
+ */
+export interface AttemptDataset {
+    is_multiple_choice?: boolean;
+    options?: string[];
+    pairs?: MatchingPair[];
+    rows?: string[];
+    columns?: string[];
+    description?: string;
+    is_checkbox?: boolean;
+    components?: FillBlanksComponent[];
+    is_file_disabled?: boolean;
+    is_text_disabled?: boolean;
+    is_attachments_enabled?: boolean;
+    is_html_enabled?: boolean;
+    template?: string[];
+    image_src?: string;
+    level?: number;
+    file?: string;
 }
 
 export interface Attempt {
     id: number;
     step: number;
-    dataset?: {
-        is_multiple_choice?: boolean;
-        options?: string[];
-    };
+    dataset?: AttemptDataset | string | null;
+    dataset_url?: string | null;
+    time_left?: number | null;
+    status?: string;
 }
 
 export interface Submission {
@@ -85,24 +288,220 @@ export interface Submission {
     score: number;
     hint: string;
     feedback: string;
+    time?: string;
+    reply?: {
+        code?: string;
+        language?: string;
+        html?: string;
+        css?: string;
+        file?: string;
+        text?: string;
+        number?: string;
+        formula?: string;
+        ordering?: number[];
+        blanks?: string[];
+        solve_sql?: string;
+        choices?: boolean[] | TableRowChoice[];
+        slots?: ChemicalSlot[];
+        solved?: boolean;
+        score?: number;
+        [key: string]: unknown;
+    } | null;
+}
+
+export interface ChemicalSlot {
+    normal: string;
+    sub: string;
+    sup: string;
 }
 
 export interface QuizReply {
-    choices?: boolean[];  // For choice/multichoice
-    text?: string;        // For string
-    number?: string;      // For number
+    choices?: boolean[] | TableRowChoice[];  // choice / table
+    text?: string;                          // string / free-answer
+    number?: string;                        // number
+    formula?: string;                       // math
+    ordering?: number[];                    // sorting / matching
+    blanks?: string[];                      // fill-blanks
+    solve_sql?: string;                     // sql
+    html?: string;                          // html
+    css?: string;                           // html
+    file?: string;                          // dataset
+    slots?: ChemicalSlot[];                 // chemical
+    solved?: boolean;                       // puzzle
+    attachments?: unknown[];                // free-answer
+    files?: unknown[];                      // string
+    score?: number;                         // html checker result
+}
+
+export interface CommentUser {
+    id: number;
+    full_name: string;
+    avatar?: string | null;
+}
+
+export type VoteValue = 'epic' | 'abuse' | null;
+
+/**
+ * Stepik stores one vote relation per comment and current user. The relation
+ * exists even before the user votes; its value is null in that case.
+ */
+export interface CommentVote {
+    id: string;
+    value: VoteValue;
+}
+
+export interface StepikComment {
+    id: number;
+    parent: number | null;
+    user: number;
+    user_role: string;
+    time: string;
+    last_time?: string;
+    text: string;
+    reply_count: number;
+    is_deleted: boolean;
+    is_banned?: boolean;
+    is_pinned?: boolean;
+    is_staff_replied?: boolean;
+    vote_delta?: number;
+    epic_count?: number;
+    abuse_count?: number;
+    /**
+     * Id of the current user's vote relation. The Android client expects a
+     * string, but accept an embedded object as a defensive fallback.
+     */
+    vote?: string | CommentVote | null;
+    actions?: {
+        vote?: boolean;
+        [key: string]: unknown;
+    };
+    thread?: string;
+    submission?: number | null;
+    edited_at?: string | null;
+    replies?: number[];
+}
+
+export interface CommentsPage {
+    comments: StepikComment[];
+    users: CommentUser[];
+    votes: CommentVote[];
+    submissions?: Submission[];
+    page: number;
+    hasNext: boolean;
+}
+
+/**
+ * A discussion proxy contains the full list of top-level comment ids in
+ * several site-provided orders. Pinned comments are always first.
+ */
+export interface DiscussionProxy {
+    id: string;
+    discussions: number[];
+    discussions_most_liked: number[];
+    discussions_most_active: number[];
+    discussions_recent_activity: number[];
+}
+
+export interface DiscussionThread {
+    id: string;
+    thread: string;
+    discussions_count: number;
+    discussion_proxy: string;
+}
+
+export class StepikApiError extends Error {
+    constructor(
+        message: string,
+        readonly status: number
+    ) {
+        super(message);
+        this.name = 'StepikApiError';
+    }
 }
 
 export class StepikApi {
+    private readonly inflightRequests = new Map<string, Promise<unknown>>();
+    private readonly responseCache = new Map<
+        string,
+        { expires: number; value: unknown }
+    >();
+    private cacheGeneration = 0;
+
     constructor(private auth: StepikAuth) {}
 
+    /**
+     * Keep short-lived copies of read-only responses. The webview preloads the
+     * previous and next steps, so opening one of them reuses a warm response
+     * instead of waiting for the network. Writes invalidate the affected
+     * entries explicitly; `POST /views` intentionally does not, because it
+     * fires on every step open and must not throw away the preload cache.
+     */
+    private cachedRequest<T>(endpoint: string, ttlMs: number): Promise<T> {
+        const hit = this.responseCache.get(endpoint);
+        if (hit && hit.expires > Date.now()) {
+            return Promise.resolve(hit.value as T);
+        }
+        const generation = this.cacheGeneration;
+        return this.request<T>(endpoint).then(value => {
+            // A write may have invalidated the cache while this read was in
+            // flight. Do not store the old response in that case.
+            if (generation === this.cacheGeneration) {
+                this.responseCache.set(endpoint, {
+                    expires: Date.now() + ttlMs,
+                    value
+                });
+            }
+            return value;
+        });
+    }
+
+    private invalidateCache(prefixes: string[]): void {
+        this.cacheGeneration++;
+        for (const key of Array.from(this.responseCache.keys())) {
+            if (prefixes.some(prefix => key.startsWith(prefix))) {
+                this.responseCache.delete(key);
+            }
+        }
+    }
+
+    /** Drop every cached response, for example after login or logout. */
+    clearCache(): void {
+        this.cacheGeneration++;
+        this.responseCache.clear();
+        this.inflightRequests.clear();
+    }
+
     private async request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+        const method = (options.method || 'GET').toUpperCase();
+        const canShare = method === 'GET' && !options.body;
+
+        // Several panels/tree refreshes may ask for the same resource at the
+        // same time. Share one network request instead of duplicating it.
+        if (canShare) {
+            const pending = this.inflightRequests.get(endpoint);
+            if (pending) {
+                return pending as Promise<T>;
+            }
+        }
+
+        const promise = this.performRequest<T>(endpoint, options);
+        if (canShare) {
+            this.inflightRequests.set(endpoint, promise);
+            void promise.then(
+                () => this.inflightRequests.delete(endpoint),
+                () => this.inflightRequests.delete(endpoint)
+            );
+        }
+        return promise;
+    }
+
+    private async performRequest<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
         const token = await this.auth.getToken();
         if (!token) {
             throw new Error('Not authenticated. Please login first.');
         }
 
-        const response = await fetch(`${BASE_URL}${endpoint}`, {
+        const response = await fetchWithTimeout(`${BASE_URL}${endpoint}`, {
             ...options,
             headers: {
                 'Authorization': `Bearer ${token}`,
@@ -112,34 +511,82 @@ export class StepikApi {
         });
 
         if (!response.ok) {
-            throw new Error(`API Error: ${response.status} ${response.statusText}`);
+            // Stepik returns a useful JSON detail for 4xx responses. Keep it in
+            // the error message so the output channel explains what went wrong.
+            let detail = '';
+            try {
+                const body = await response.text();
+                if (body) {
+                    try {
+                        const parsed = JSON.parse(body) as { detail?: unknown };
+                        detail = parsed.detail ? String(parsed.detail) : body.slice(0, 300);
+                    } catch {
+                        detail = body.slice(0, 300);
+                    }
+                }
+            } catch {
+                // Ignore a secondary body-read error.
+            }
+            const message = response.status === 401
+                ? 'Сессия Stepik истекла. Выполните вход заново.'
+                : `API Error: ${response.status} ${response.statusText}${detail ? ` — ${detail}` : ''}`;
+            throw new StepikApiError(message, response.status);
         }
 
-        return response.json() as Promise<T>;
+        if (response.status === 204) {
+            return {} as T;
+        }
+
+        const text = await response.text();
+        if (!text.trim()) {
+            return {} as T;
+        }
+        return JSON.parse(text) as T;
     }
 
     async getCurrentUser(): Promise<{ id: number }> {
-        const data = await this.request<{ users: Array<{ id: number }> }>('/stepics/1');
-        return { id: data.users[0].id };
+        const data = await this.cachedRequest<{ users: Array<{ id: number }> }>(
+            '/stepics/1',
+            5 * 60_000
+        );
+        const user = data.users?.[0];
+        if (!user) {
+            throw new Error('Не удалось определить пользователя Stepik.');
+        }
+        return { id: user.id };
     }
 
     async getUserCourses(): Promise<Course[]> {
         const user = await this.getCurrentUser();
-        const data = await this.request<{ 
-            'user-courses': Array<{ course: number }>;
-            courses: Course[];
-        }>(`/user-courses?user=${user.id}&page=1`);
-        
-        // Need to fetch full course details
-        const courseIds = data['user-courses'].map(uc => uc.course);
+
+        // /user-courses is paginated (20 items per page by default). Load all
+        // pages instead of silently dropping courses after the first one.
+        const courseIds: number[] = [];
+        for (let page = 1; ; page++) {
+            const data = await this.request<{
+                'user-courses': Array<{ course: number }>;
+                meta?: { has_next?: boolean };
+            }>(`/user-courses?user=${user.id}&page=${page}`);
+            const items = data['user-courses'] || [];
+            courseIds.push(...items.map(uc => uc.course));
+            if (!data.meta?.has_next || items.length === 0) {
+                break;
+            }
+        }
+
         if (courseIds.length === 0) {
             return [];
         }
-        
-        const coursesData = await this.request<{ courses: Course[] }>(
-            `/courses?ids[]=${courseIds.join('&ids[]=')}`
-        );
-        return coursesData.courses;
+
+        const courses: Course[] = [];
+        for (let i = 0; i < courseIds.length; i += 100) {
+            const chunk = courseIds.slice(i, i + 100);
+            const coursesData = await this.request<{ courses: Course[] }>(
+                `/courses?ids[]=${chunk.join('&ids[]=')}`
+            );
+            courses.push(...(coursesData.courses || []));
+        }
+        return courses;
     }
 
     async getCourse(courseId: number): Promise<Course | undefined> {
@@ -155,30 +602,47 @@ export class StepikApi {
         if (sectionIds.length === 0) {
             return [];
         }
-        const data = await this.request<{ sections: Section[] }>(
-            `/sections?ids[]=${sectionIds.join('&ids[]=')}`
-        );
-        return data.sections;
+        const sections: Section[] = [];
+        for (const part of chunkItems(sectionIds)) {
+            const data = await this.request<{ sections: Section[] }>(
+                `/sections?ids[]=${part.join('&ids[]=')}`
+            );
+            sections.push(...(data.sections || []));
+        }
+        return sections;
+    }
+
+    async getSection(sectionId: number): Promise<Section | undefined> {
+        const sections = await this.getSections([sectionId]);
+        return sections[0];
     }
 
     async getUnits(unitIds: number[]): Promise<Unit[]> {
         if (unitIds.length === 0) {
             return [];
         }
-        const data = await this.request<{ units: Unit[] }>(
-            `/units?ids[]=${unitIds.join('&ids[]=')}`
-        );
-        return data.units;
+        const units: Unit[] = [];
+        for (const part of chunkItems(unitIds)) {
+            const data = await this.request<{ units: Unit[] }>(
+                `/units?ids[]=${part.join('&ids[]=')}`
+            );
+            units.push(...(data.units || []));
+        }
+        return units;
     }
 
     async getLessons(lessonIds: number[]): Promise<Lesson[]> {
         if (lessonIds.length === 0) {
             return [];
         }
-        const data = await this.request<{ lessons: Lesson[] }>(
-            `/lessons?ids[]=${lessonIds.join('&ids[]=')}`
-        );
-        return data.lessons;
+        const lessons: Lesson[] = [];
+        for (const part of chunkItems(lessonIds)) {
+            const data = await this.request<{ lessons: Lesson[] }>(
+                `/lessons?ids[]=${part.join('&ids[]=')}`
+            );
+            lessons.push(...(data.lessons || []));
+        }
+        return lessons;
     }
 
     async getStep(stepId: number): Promise<Step> {
@@ -186,14 +650,379 @@ export class StepikApi {
         return data.steps[0];
     }
 
+    /**
+     * Mark a step as viewed. The Stepik web client posts this every time a
+     * step is opened. The assignment id links the view to the course unit;
+     * without it text steps are not counted as passed.
+     */
+    async markStepViewed(stepId: number, assignmentId?: number | null): Promise<void> {
+        await this.request<{ views?: unknown[] }>('/views', {
+            method: 'POST',
+            body: JSON.stringify({
+                view: {
+                    step: String(stepId),
+                    assignment: assignmentId != null ? String(assignmentId) : null
+                }
+            })
+        });
+    }
+
     async getSteps(stepIds: number[]): Promise<Step[]> {
         if (stepIds.length === 0) {
             return [];
         }
-        const data = await this.request<{ steps: Step[] }>(
-            `/steps?ids[]=${stepIds.join('&ids[]=')}`
+        const steps: Step[] = [];
+        for (const part of chunkItems(stepIds)) {
+            const data = await this.request<{ steps: Step[] }>(
+                `/steps?ids[]=${part.join('&ids[]=')}`
+            );
+            steps.push(...(data.steps || []));
+        }
+        return steps;
+    }
+
+    async getAssignments(assignmentIds: number[]): Promise<Assignment[]> {
+        if (assignmentIds.length === 0) {
+            return [];
+        }
+        const assignments: Assignment[] = [];
+        for (const part of chunkItems(assignmentIds)) {
+            const data = await this.request<{ assignments: Assignment[] }>(
+                `/assignments?ids[]=${part.join('&ids[]=')}`
+            );
+            assignments.push(...(data.assignments || []));
+        }
+        return assignments;
+    }
+
+    /**
+     * Return the assignment id that links a step to a unit. Stepik's `view`
+     * endpoint needs this id for course progress to be recalculated; without
+     * it the view is stored globally and text steps stay unpassed.
+     */
+    async getAssignmentIdForStep(unitId: number, stepId: number): Promise<number | undefined> {
+        const units = await this.getUnits([unitId]);
+        const unit = units[0];
+        if (!unit || !unit.assignments || unit.assignments.length === 0) {
+            return undefined;
+        }
+        const assignments = await this.getAssignments(unit.assignments);
+        return assignments.find(assignment => assignment.step === stepId)?.id;
+    }
+
+    async getExamSession(sessionId: number): Promise<ExamSession | undefined> {
+        try {
+            const data = await this.request<ExamSessionPayload>(
+                `/exam-sessions/${sessionId}`
+            );
+            return extractExamSession(data);
+        } catch (error) {
+            // Some API versions expose only the list endpoint.
+            try {
+                const data = await this.request<ExamSessionPayload>(
+                    `/exam-sessions?ids[]=${sessionId}`
+                );
+                return extractExamSession(data);
+            } catch {
+                throw error;
+            }
+        }
+    }
+
+    /**
+     * Start an exam exactly like the Stepik web client: create an
+     * `exam-session` for the section. The server decides whether the user is
+     * allowed to start; the timer lives in the returned session.
+     */
+    async createExamSession(sectionId: number): Promise<ExamSession> {
+        const data = await this.request<ExamSessionPayload>('/exam-sessions', {
+            method: 'POST',
+            body: JSON.stringify({
+                exam_session: {
+                    section: sectionId
+                }
+            })
+        });
+
+        const session = extractExamSession(data);
+        if (!session) {
+            throw new Error('Stepik не вернул созданную экзаменационную сессию.');
+        }
+        return session;
+    }
+
+    /**
+     * Load comments for a step. Pass parent = null for top-level comments,
+     * or a comment id to load its direct replies.
+     */
+    async getComments(
+        stepId: number,
+        page: number = 1,
+        parent: number | null = null
+    ): Promise<CommentsPage> {
+        const parentParam = parent === null ? 'null' : String(parent);
+        const endpoint = `/comments?target=${stepId}&parent=${parentParam}&page=${page}&page_size=20`;
+        const data = await this.cachedRequest<{
+            meta?: { page?: number; has_next?: boolean };
+            comments: StepikComment[];
+            submissions?: Submission[];
+            users?: CommentUser[];
+            votes?: CommentVote[];
+        }>(endpoint, 60_000);
+
+        return {
+            comments: data.comments || [],
+            users: data.users || [],
+            votes: data.votes || [],
+            submissions: data.submissions || [],
+            page: data.meta?.page ?? page,
+            hasNext: data.meta?.has_next ?? false
+        };
+    }
+
+    /**
+     * Load comments authored by one user on a step. Unlike the discussion
+     * proxy, this endpoint also returns replies, so it can be used for the
+     * "Мои комментарии" view.
+     */
+    async getUserComments(
+        stepId: number,
+        userId: number,
+        page: number = 1
+    ): Promise<CommentsPage> {
+        const data = await this.cachedRequest<{
+            meta?: { page?: number; has_next?: boolean };
+            comments: StepikComment[];
+            submissions?: Submission[];
+            users?: CommentUser[];
+            votes?: CommentVote[];
+        }>(
+            `/comments?target=${stepId}&user=${userId}&page=${page}&page_size=100`,
+            60_000
         );
-        return data.steps;
+
+        return {
+            comments: data.comments || [],
+            users: data.users || [],
+            votes: data.votes || [],
+            submissions: data.submissions || [],
+            page: data.meta?.page ?? page,
+            hasNext: data.meta?.has_next ?? false
+        };
+    }
+
+    /**
+     * The discussion proxy contains the ordered lists of all top-level
+     * comments. Stepik exposes a separate order for date, popularity,
+     * activity and recent updates.
+     */
+    async getDiscussionProxy(proxyId: string): Promise<DiscussionProxy | undefined> {
+        const data = await this.cachedRequest<{
+            'discussion-proxies': DiscussionProxy[];
+        }>(`/discussion-proxies/${encodeURIComponent(proxyId)}`, 60_000);
+
+        return data['discussion-proxies']?.[0];
+    }
+
+    /**
+     * Discussion threads are named "default" and "solutions". The solutions
+     * thread has its own proxy and is only returned for users who unlocked it.
+     */
+    async getDiscussionThread(
+        threadId: string,
+        forceRefresh: boolean = false
+    ): Promise<DiscussionThread | undefined> {
+        const endpoint = `/discussion-threads/${encodeURIComponent(threadId)}`;
+        const data = forceRefresh
+            ? await this.request<{ 'discussion-threads': DiscussionThread[] }>(endpoint)
+            : await this.cachedRequest<{ 'discussion-threads': DiscussionThread[] }>(
+                  endpoint,
+                  60_000
+              );
+
+        return data['discussion-threads']?.[0];
+    }
+
+    async getDiscussionThreads(
+        threadIds: string[],
+        forceRefresh: boolean = false
+    ): Promise<DiscussionThread[]> {
+        if (threadIds.length === 0) {
+            return [];
+        }
+
+        const query = threadIds.map(id => `ids[]=${encodeURIComponent(id)}`).join('&');
+        const endpoint = `/discussion-threads?${query}`;
+        const data = forceRefresh
+            ? await this.request<{ 'discussion-threads': DiscussionThread[] }>(endpoint)
+            : await this.cachedRequest<{ 'discussion-threads': DiscussionThread[] }>(
+                  endpoint,
+                  60_000
+              );
+
+        return data['discussion-threads'] || [];
+    }
+
+    /**
+     * Comments can be loaded in batches by id. Stepik also returns all direct
+     * replies to every requested comment in the same response.
+     */
+    async getCommentsByIds(ids: number[]): Promise<{
+        comments: StepikComment[];
+        users: CommentUser[];
+        votes: CommentVote[];
+        submissions: Submission[];
+    }> {
+        if (ids.length === 0) {
+            return { comments: [], users: [], votes: [], submissions: [] };
+        }
+
+        const query = ids.map(id => `ids[]=${id}`).join('&');
+        const data = await this.cachedRequest<{
+            comments: StepikComment[];
+            users?: CommentUser[];
+            votes?: CommentVote[];
+            submissions?: Submission[];
+        }>(`/comments?${query}`, 60_000);
+
+        return {
+            comments: data.comments || [],
+            users: data.users || [],
+            votes: data.votes || [],
+            submissions: data.submissions || []
+        };
+    }
+
+    /**
+     * Load the current user's submissions for a step. Stepik requires a
+     * concrete user id here: the special value "me" is rejected with 400.
+     */
+    async getUserSubmissions(stepId: number): Promise<Submission[]> {
+        const user = await this.getCurrentUser();
+        const data = await this.cachedRequest<{ submissions: Submission[] }>(
+            `/submissions?step=${stepId}&user=${user.id}&order=desc&page=1`,
+            60_000
+        );
+        return data.submissions || [];
+    }
+
+    /**
+     * Create a top-level comment (parent omitted) or a reply. Stepik expects
+     * HTML in the text field and a thread name for non-default forums.
+     * A top-level comment in the solutions thread must also reference the
+     * author's submission, otherwise the API responds with 400 Bad Request.
+     */
+    async createComment(
+        target: number,
+        text: string,
+        parent?: number,
+        thread?: string,
+        submission?: number
+    ): Promise<{
+        comment: StepikComment;
+        users: CommentUser[];
+        votes: CommentVote[];
+        submissions: Submission[];
+    }> {
+        const comment: {
+            target: number;
+            text: string;
+            parent?: number;
+            thread?: string;
+            submission?: string;
+        } = { target, text };
+
+        if (parent) {
+            comment.parent = parent;
+        }
+        if (thread) {
+            comment.thread = thread;
+        }
+        if (submission && !parent && thread === 'solutions') {
+            // Stepik's WriteCommentSerializer declares submission as a string.
+            comment.submission = String(submission);
+        }
+
+        const data = await this.request<{
+            comments: StepikComment[];
+            users?: CommentUser[];
+            votes?: CommentVote[];
+            submissions?: Submission[];
+        }>('/comments', {
+            method: 'POST',
+            body: JSON.stringify({ comment })
+        });
+
+        // Comment lists, proxy orders and thread counters all change after a
+        // new comment or reply.
+        this.invalidateCache([
+            '/comments',
+            '/discussion-proxies',
+            '/discussion-threads'
+        ]);
+
+        return {
+            comment: data.comments[0],
+            users: data.users || [],
+            votes: data.votes || [],
+            submissions: data.submissions || []
+        };
+    }
+
+    /**
+     * Load one page of direct replies to a comment. Stepik caps page_size at
+     * 20 items, even when a larger value is requested, so callers that need a
+     * bigger batch must combine several pages.
+     */
+    async getCommentReplies(
+        commentId: number,
+        page: number = 1,
+        pageSize: number = 20
+    ): Promise<CommentsPage> {
+        const data = await this.cachedRequest<{
+            meta?: { page?: number; has_next?: boolean };
+            comments: StepikComment[];
+            submissions?: Submission[];
+            users?: CommentUser[];
+            votes?: CommentVote[];
+        }>(
+            `/comments?parent=${commentId}&page=${page}&page_size=${pageSize}`,
+            60_000
+        );
+
+        return {
+            comments: (data.comments || []).filter(comment => comment.parent === commentId),
+            users: data.users || [],
+            votes: data.votes || [],
+            submissions: data.submissions || [],
+            page: data.meta?.page ?? page,
+            hasNext: data.meta?.has_next ?? false
+        };
+    }
+
+    /**
+     * Save (or clear) the current user's vote for a comment. Stepik expects a
+     * full vote object in the body and id in the path. Sending value = null
+     * removes an existing like/dislike.
+     */
+    async saveVote(voteId: string, value: VoteValue): Promise<CommentVote | undefined> {
+        const data = await this.request<{ votes?: CommentVote[] }>(
+            `/votes/${encodeURIComponent(voteId)}`,
+            {
+                method: 'PUT',
+                body: JSON.stringify({
+                    vote: {
+                        id: voteId,
+                        value
+                    }
+                })
+            }
+        );
+
+        // Votes are embedded in comment responses, so refresh them next time.
+        this.invalidateCache(['/comments']);
+
+        return data.votes?.[0];
     }
 
     async createAttempt(stepId: number): Promise<Attempt> {
@@ -205,15 +1034,43 @@ export class StepikApi {
                 }
             })
         });
+        this.invalidateCache(['/attempts']);
         return data.attempts[0];
     }
 
+    async getAttempts(stepId: number): Promise<Attempt[]> {
+        const data = await this.cachedRequest<{ attempts: Attempt[] }>(
+            `/attempts?step=${stepId}&user=me`,
+            60_000
+        );
+        return (data.attempts || []).sort((left, right) => right.id - left.id);
+    }
+
+    /**
+     * Reuse the latest attempt instead of POSTing a new one every time a step
+     * is opened. Stepik's web client keeps one attempt per step and lets the
+     * user send several submissions into it.
+     */
     async getAttempt(stepId: number): Promise<Attempt> {
-        const data = await this.request<{ attempts: Attempt[] }>(`/attempts?step=${stepId}&user=me`);
-        if (data.attempts.length > 0) {
-            return data.attempts[0];
+        try {
+            const attempts = await this.getAttempts(stepId);
+            const latest = attempts.find(
+                attempt => attempt.status !== 'outdated' && attempt.status !== 'cleanedup'
+            );
+            if (latest) {
+                return latest;
+            }
+        } catch (error) {
+            // Older Stepik deployments may reject the attempts listing. Do
+            // not break the whole task because of that; a fresh attempt is a
+            // safe fallback.
+            console.warn('[Stepik] Failed to load attempts:', error);
         }
         return this.createAttempt(stepId);
+    }
+
+    async getOrCreateAttempt(stepId: number): Promise<Attempt> {
+        return this.getAttempt(stepId);
     }
 
     async submitSolution(attemptId: number, language: string, code: string): Promise<Submission> {
@@ -229,6 +1086,7 @@ export class StepikApi {
                 }
             })
         });
+        this.invalidateAfterSubmission();
         return data.submissions[0];
     }
 
@@ -242,7 +1100,23 @@ export class StepikApi {
                 }
             })
         });
+        this.invalidateAfterSubmission();
         return data.submissions[0];
+    }
+
+    /**
+     * A submission updates attempt status, submissions shown in comments and
+     * can unlock the solutions thread. Drop every affected read cache so the
+     * reopened step and its preloaded neighbours see the new state.
+     */
+    private invalidateAfterSubmission(): void {
+        this.invalidateCache([
+            '/attempts',
+            '/submissions',
+            '/comments',
+            '/discussion-proxies',
+            '/discussion-threads'
+        ]);
     }
 
     async getSubmission(submissionId: number): Promise<Submission> {
@@ -250,6 +1124,37 @@ export class StepikApi {
             `/submissions/${submissionId}`
         );
         return data.submissions[0];
+    }
+
+    /**
+     * Data challenges expose a randomized input file through dataset_url.
+     * The endpoint is plain text, not JSON, so it cannot use request<T>().
+     */
+    async getAttemptFile(attemptId: number, datasetUrl?: string | null): Promise<string> {
+        const token = await this.auth.getToken();
+        if (!token) {
+            throw new Error('Not authenticated. Please login first.');
+        }
+
+        const endpoint = datasetUrl || `/attempts/${attemptId}/file`;
+        const url = /^https?:\/\//i.test(endpoint)
+            ? endpoint
+            : `https://stepik.org${endpoint.startsWith('/') ? '' : '/'}${endpoint}`;
+
+        const response = await fetchWithTimeout(url, {
+            headers: {
+                Authorization: `Bearer ${token}`
+            }
+        });
+
+        if (!response.ok) {
+            throw new StepikApiError(
+                `API Error: ${response.status} ${response.statusText}`,
+                response.status
+            );
+        }
+
+        return response.text();
     }
 
     async getProgressByIds(progressIds: string[]): Promise<Map<string, Progress>> {
@@ -263,15 +1168,18 @@ export class StepikApi {
             if (validIds.length === 0) {
                 return result;
             }
-            const idsQuery = validIds.map(id => `ids[]=${id}`).join('&');
-            const data = await this.request<{ progresses: Progress[] }>(
-                `/progresses?${idsQuery}`
-            );
-            for (const progress of data.progresses) {
-                result.set(progress.id, progress);
+            for (const part of chunkItems(validIds)) {
+                const idsQuery = part.map(id => `ids[]=${encodeURIComponent(id)}`).join('&');
+                const data = await this.request<{ progresses: Progress[] }>(
+                    `/progresses?${idsQuery}`
+                );
+                for (const progress of data.progresses || []) {
+                    result.set(progress.id, progress);
+                }
             }
-        } catch {
-            // Ignore errors
+        } catch (error) {
+            // Progress is cosmetic; do not break the whole tree if it fails.
+            console.warn('[Stepik] Failed to load progress:', error);
         }
         return result;
     }
@@ -293,16 +1201,18 @@ export class StepikApi {
             return result;
         }
         try {
-            const ids = stepIds.map(id => `step-${id}`).join('&ids[]=');
-            const data = await this.request<{ progresses: Array<{ id: string; is_passed: boolean }> }>(
-                `/progresses?ids[]=${ids}`
-            );
-            for (const progress of data.progresses) {
-                const stepId = parseInt(progress.id.replace('step-', ''));
-                result.set(stepId, progress.is_passed);
+            for (const part of chunkItems(stepIds)) {
+                const ids = part.map(id => `step-${id}`).join('&ids[]=');
+                const data = await this.request<{ progresses: Array<{ id: string; is_passed: boolean }> }>(
+                    `/progresses?ids[]=${ids}`
+                );
+                for (const progress of data.progresses || []) {
+                    const stepId = parseInt(progress.id.replace('step-', ''));
+                    result.set(stepId, progress.is_passed);
+                }
             }
-        } catch {
-            // Ignore errors
+        } catch (error) {
+            console.warn('[Stepik] Failed to load step progress:', error);
         }
         return result;
     }

@@ -3,11 +3,13 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { StepikApi } from './api/stepikApi';
 import { StepikTreeProvider } from './providers/treeProvider';
+import { combineSubmissionFeedback } from './submissionFeedback';
 
 interface StepMapping {
     [filePath: string]: {
         stepId: number;
         language: string;
+        sectionId?: number;
     };
 }
 
@@ -35,8 +37,25 @@ export class StepikSubmit {
             return;
         }
 
-        const { stepId, language } = mapping;
+        const { stepId, language, sectionId } = mapping;
         const code = editor.document.getText();
+
+        // Exam sessions can expire (or the exam might not be started at all);
+        // never send a solution in that case.
+        let access: { ok: boolean; reason?: string };
+        try {
+            access = await this.treeProvider.canSubmit(sectionId);
+        } catch (error) {
+            const detail = error instanceof Error ? error.message : String(error);
+            vscode.window.showErrorMessage(`Не удалось проверить доступ к секции: ${detail}`);
+            return;
+        }
+        if (!access.ok) {
+            vscode.window.showWarningMessage(
+                access.reason || 'Отправка решений для этой секции сейчас недоступна.'
+            );
+            return;
+        }
 
         await vscode.window.withProgress(
             {
@@ -46,9 +65,9 @@ export class StepikSubmit {
             },
             async (progress: vscode.Progress<{ message?: string }>) => {
                 try {
-                    // Create attempt
-                    progress.report({ message: 'Creating attempt...' });
-                    const attempt = await this.api.createAttempt(stepId);
+                    // Reuse the latest attempt, exactly like the web client.
+                    progress.report({ message: 'Preparing attempt...' });
+                    const attempt = await this.api.getOrCreateAttempt(stepId);
 
                     // Submit solution
                     progress.report({ message: 'Sending code...' });
@@ -73,7 +92,9 @@ export class StepikSubmit {
         );
     }
 
-    private getStepMapping(filePath: string): { stepId: number; language: string } | undefined {
+    private getStepMapping(
+        filePath: string
+    ): { stepId: number; language: string; sectionId?: number } | undefined {
         const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
         if (!workspaceFolder) {
             return undefined;
@@ -85,8 +106,34 @@ export class StepikSubmit {
             return undefined;
         }
 
-        const mapping: StepMapping = JSON.parse(fs.readFileSync(mappingPath, 'utf8'));
-        return mapping[filePath];
+        try {
+            const parsed = JSON.parse(fs.readFileSync(mappingPath, 'utf8')) as StepMapping;
+            if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+                return undefined;
+            }
+            const entry = parsed[filePath];
+            if (
+                !entry ||
+                typeof entry !== 'object' ||
+                !Number.isInteger(entry.stepId) ||
+                entry.stepId <= 0 ||
+                typeof entry.language !== 'string' ||
+                !entry.language.trim()
+            ) {
+                return undefined;
+            }
+            const sectionId =
+                Number.isInteger(entry.sectionId) && entry.sectionId! > 0
+                    ? entry.sectionId
+                    : undefined;
+            return { stepId: entry.stepId, language: entry.language, sectionId };
+        } catch (error) {
+            const detail = error instanceof Error ? error.message : String(error);
+            this.outputChannel.appendLine(
+                `[Mapping] Не удалось прочитать ${mappingPath}: ${detail}`
+            );
+            return undefined;
+        }
     }
 
     private async pollSubmissionResult(
@@ -131,15 +178,13 @@ export class StepikSubmit {
             });
             
             // Output detailed error to output channel
+            const detail = combineSubmissionFeedback(result.hint, result.feedback);
             this.outputChannel.appendLine('═'.repeat(50));
             this.outputChannel.appendLine(`❌ Submission Result: ${result.status}`);
             this.outputChannel.appendLine(`Step ID: ${stepId}`);
             this.outputChannel.appendLine(`Score: ${result.score}`);
-            if (result.hint) {
-                this.outputChannel.appendLine(`\nHint: ${result.hint}`);
-            }
-            if (result.feedback) {
-                this.outputChannel.appendLine(`\nFeedback: ${result.feedback}`);
+            if (detail) {
+                this.outputChannel.appendLine(`\nFeedback: ${detail}`);
             }
             this.outputChannel.appendLine('═'.repeat(50));
             this.outputChannel.appendLine('');
