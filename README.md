@@ -1,11 +1,11 @@
-# Stepik для VS Code
+# Stepik для VS Code (Fork)
 
 [[EN]](README.en.md)
 
+> **Fork:** [su-mt/stepik-vscode](https://github.com/su-mt/stepik-vscode).
 > **Автор:** Данил Проскурин (꧁༒☬𝔉𝔜𝔡𝔡𝔡𝔡𝔰𝔰☬༒꧂).
 > Расширение для решения задач [Stepik](https://stepik.org) прямо в VS Code.
 
-Это форк проекта [su-mt/stepik-vscode](https://github.com/su-mt/stepik-vscode).
 Проект распространяется под лицензией GPL-3.0. В этой версии добавлены
 комментарии, форум решений, Markdown-форматирование, оценки, рендер формул,
 экзамены, навигация по шагам и встроенный видеоплеер.
@@ -68,12 +68,12 @@
 
 1. Откройте раздел
    [Releases](https://github.com/danilproskurin291-cmd/stepik-vscode/releases).
-2. Скачайте последний файл `stepik-vscode-0.4.0.vsix`.
+2. Скачайте последний файл `stepik-vscode-0.4.1.vsix`.
 3. Установите его одним из способов:
    - из терминала:
 
      ```bash
-     code --install-extension stepik-vscode-0.4.0.vsix
+     code --install-extension stepik-vscode-0.4.1.vsix
      ```
 
    - или в VS Code: **Extensions → … → Install from VSIX…**, затем выберите
@@ -90,11 +90,11 @@
 npm ci
 npm run build
 npx @vscode/vsce package
-code --install-extension stepik-vscode-0.4.0.vsix
+code --install-extension stepik-vscode-0.4.1.vsix
 ```
 
 Готовые файлы сборки: `dist/extension.js` и `dist/audioWorker.js`.
-Установочный пакет: `stepik-vscode-0.4.0.vsix`.
+Установочный пакет: `stepik-vscode-0.4.1.vsix`.
 
 ## Первый запуск
 
@@ -570,7 +570,7 @@ npx tsc --noEmit
 ```
 
 Готовая сборка: `dist/extension.js` и `dist/audioWorker.js`.
-Установочный пакет: `stepik-vscode-0.4.0.vsix`.
+Установочный пакет: `stepik-vscode-0.4.1.vsix`.
 
 ## Ограничения
 

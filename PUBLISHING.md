@@ -28,7 +28,7 @@ npm run build
 npx @vscode/vsce package
 ```
 
-В корне появится `stepik-vscode-0.4.0.vsix`.
+В корне появится `stepik-vscode-0.4.1.vsix`.
 
 `vsce` может предупредить об отсутствии `LICENSE` в формате Markdown или о
 поле `publisher`. Лицензия уже включена как `LICENSE.txt`.
@@ -42,22 +42,22 @@ npx @vscode/vsce package
 
 ```bash
 git add .
-git commit -m "Stepik for VS Code 0.4.0"
+git commit -m "Stepik for VS Code 0.4.1"
 git push origin main
 ```
 
 ## 4. Оформите релиз на GitHub
 
 1. Откройте **Releases → Draft a new release**.
-2. Укажите тег `v0.4.0`.
-3. Прикрепите `stepik-vscode-0.4.0.vsix`.
+2. Укажите тег `v0.4.1`.
+3. Прикрепите `stepik-vscode-0.4.1.vsix`.
 4. При необходимости приложите ZIP с исходниками.
 5. Опубликуйте релиз.
 
 Пользователи смогут установить расширение командой:
 
 ```bash
-code --install-extension stepik-vscode-0.4.0.vsix
+code --install-extension stepik-vscode-0.4.1.vsix
 ```
 
 ## 5. Публикация в VS Code Marketplace (необязательно)

@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.4.1] - 2026-11-03
+
+### Changed
+
+- Renamed the extension package to `stepik-vscode-fork` and changed the display
+  name to **Stepik Fork**. The Marketplace already has an extension named
+  `stepik-vscode`, so the fork uses a unique name.
+- Added an explicit **Fork** label to the README and the activity bar title.
+
 ## [0.4.0] - 2026-11-03
 
 ### Added

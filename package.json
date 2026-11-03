@@ -1,9 +1,9 @@
 {
-	"name": "stepik-vscode",
-	"displayName": "Stepik",
-	"description": "Solve Stepik problems, read discussions and post comments in VS Code",
+	"name": "stepik-vscode-fork",
+	"displayName": "Stepik Fork",
+	"description": "Fork of Stepik for VS Code: solve Stepik problems, read discussions and post comments",
 	"author": "Danil Proskurin (꧁༒☬𝔉𝔜𝔡𝔡𝔡𝔡𝔰𝔰☬༒꧂)",
-	"version": "0.4.0",
+	"version": "0.4.1",
 	"publisher": "FYddddss",
 	"license": "GPL-3.0-only",
 	"engines": {
@@ -18,7 +18,8 @@
 		"education",
 		"python",
 		"courses",
-		"comments"
+		"comments",
+		"fork"
 	],
 	"activationEvents": [
 		"onView:stepikCourses",
@@ -68,7 +69,7 @@
 			"activitybar": [
 				{
 					"id": "stepik",
-					"title": "Stepik",
+					"title": "Stepik Fork",
 					"icon": "resources/stepik.svg"
 				}
 			]
