@@ -28,7 +28,7 @@ import {
 } from '../api/stepikApi';
 import { StepikTreeProvider } from '../providers/treeProvider';
 import { StepContext } from '../stepContext';
-import { getActiveSolutionRoot, getMappingPath } from '../stepikPaths';
+import { getActiveSolutionRoot, getComparableFilePath, getMappingPath } from '../stepikPaths';
 import { getStepTypeTitle } from '../stepTypes';
 import { combineSubmissionFeedback } from '../submissionFeedback';
 import {
@@ -3688,6 +3688,25 @@ export class StepikWebview implements vscode.Disposable {
         }
 
         mapping[filePath] = { stepId, language, sectionId };
+
+        // Store one canonical entry per file. VS Code may report the drive
+        // letter in lowercase while Node keeps it uppercase, which used to
+        // create duplicate keys that the submit command could not match.
+        const canonicalPath = path.resolve(filePath);
+        const canonicalKey = getComparableFilePath(canonicalPath);
+        for (const existingPath of Object.keys(mapping)) {
+            if (
+                existingPath !== canonicalPath &&
+                getComparableFilePath(existingPath) === canonicalKey
+            ) {
+                delete mapping[existingPath];
+            }
+        }
+        if (canonicalPath !== filePath) {
+            delete mapping[filePath];
+        }
+        mapping[canonicalPath] = { stepId, language, sectionId };
+
         fs.writeFileSync(mappingPath, JSON.stringify(mapping, null, 2));
     }
 

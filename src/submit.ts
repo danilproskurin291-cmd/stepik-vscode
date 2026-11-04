@@ -1,10 +1,9 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
-import * as path from 'path';
 import { StepikApi } from './api/stepikApi';
 import { StepikTreeProvider } from './providers/treeProvider';
 import { combineSubmissionFeedback } from './submissionFeedback';
-import { getMappingPath, getLegacyMappingPaths } from './stepikPaths';
+import { getComparableFilePath, getStepMappingPaths } from './stepikPaths';
 
 interface StepMapping {
     [filePath: string]: {
@@ -96,43 +95,57 @@ export class StepikSubmit {
     private getStepMapping(
         filePath: string
     ): { stepId: number; language: string; sectionId?: number } | undefined {
-        // The global mapping is authoritative. Legacy mappings from workspace
-        // folders are still checked so solutions created before 0.4.0 can be
-        // submitted without reopening the step.
-        const mappingPaths = [getMappingPath(), ...getLegacyMappingPaths()];
-        const checked = new Set<string>();
+        // The active account mapping is authoritative, but solutions created
+        // under another account or by 0.4.1 must stay submittable.
+        const targetKey = getComparableFilePath(filePath);
 
-        for (const mappingPath of mappingPaths) {
-            const normalizedPath = path.resolve(mappingPath);
-            if (checked.has(normalizedPath)) {
-                continue;
-            }
-            checked.add(normalizedPath);
-
-            const mapping = this.readMappingFile(normalizedPath);
+        for (const mappingPath of getStepMappingPaths()) {
+            const mapping = this.readMappingFile(mappingPath);
             if (!mapping) {
                 continue;
             }
 
-            const entry = mapping[filePath];
-            if (
-                !entry ||
-                typeof entry !== 'object' ||
-                !Number.isInteger(entry.stepId) ||
-                entry.stepId <= 0 ||
-                typeof entry.language !== 'string' ||
-                !entry.language.trim()
-            ) {
-                continue;
+            const direct = this.parseMappingEntry(mapping[filePath]);
+            if (direct) {
+                return direct;
             }
-            const sectionId =
-                Number.isInteger(entry.sectionId) && entry.sectionId! > 0
-                    ? entry.sectionId
-                    : undefined;
-            return { stepId: entry.stepId, language: entry.language, sectionId };
+
+            for (const [mappedPath, value] of Object.entries(mapping)) {
+                if (getComparableFilePath(mappedPath) !== targetKey) {
+                    continue;
+                }
+                const entry = this.parseMappingEntry(value);
+                if (entry) {
+                    return entry;
+                }
+            }
         }
 
+        this.outputChannel.appendLine(
+            `[Mapping] Привязка для файла не найдена: ${filePath}`
+        );
         return undefined;
+    }
+
+    private parseMappingEntry(
+        entry: StepMapping[string] | undefined
+    ): { stepId: number; language: string; sectionId?: number } | undefined {
+        if (
+            !entry ||
+            typeof entry !== 'object' ||
+            !Number.isInteger(entry.stepId) ||
+            entry.stepId <= 0 ||
+            typeof entry.language !== 'string' ||
+            !entry.language.trim()
+        ) {
+            return undefined;
+        }
+
+        const sectionId =
+            Number.isInteger(entry.sectionId) && entry.sectionId! > 0
+                ? entry.sectionId
+                : undefined;
+        return { stepId: entry.stepId, language: entry.language, sectionId };
     }
 
     private readMappingFile(mappingPath: string): StepMapping | undefined {

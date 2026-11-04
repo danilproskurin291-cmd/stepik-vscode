@@ -77,12 +77,12 @@ and your OAuth credentials.
 1. Open the
    [Releases](https://github.com/danilproskurin291-cmd/stepik-vscode/releases)
    page.
-2. Download the latest `stepik-vscode-fork-0.4.2.vsix`.
+2. Download the latest `stepik-vscode-fork-0.4.3.vsix`.
 3. Install it in one of these ways:
    - from a terminal:
 
      ```bash
-     code --install-extension stepik-vscode-fork-0.4.2.vsix
+     code --install-extension stepik-vscode-fork-0.4.3.vsix
      ```
 
    - or in VS Code: **Extensions → … → Install from VSIX…**, then select the
@@ -99,11 +99,11 @@ Node.js 18+ is required.
 npm ci
 npm run build
 npx @vscode/vsce package
-code --install-extension stepik-vscode-fork-0.4.2.vsix
+code --install-extension stepik-vscode-fork-0.4.3.vsix
 ```
 
 Build output: `dist/extension.js` and `dist/audioWorker.js`.
-Installable package: `stepik-vscode-fork-0.4.2.vsix`.
+Installable package: `stepik-vscode-fork-0.4.3.vsix`.
 
 ## First launch
 
@@ -627,7 +627,7 @@ npx tsc --noEmit
 ```
 
 Build output: `dist/extension.js` and `dist/audioWorker.js`.
-Installable package: `stepik-vscode-fork-0.4.2.vsix`.
+Installable package: `stepik-vscode-fork-0.4.3.vsix`.
 
 ## Limitations
 

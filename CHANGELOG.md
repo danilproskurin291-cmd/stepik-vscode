@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.4.3] - 2026-11-04
+
+### Fixed
+
+- Submitting a solution no longer fails with **This file is not associated with
+  a Stepik step** when Windows reports the drive letter in a different case.
+  The mapping lookup now compares resolved paths case-insensitively and checks
+  every account folder, the shared folder, and legacy backups.
+- The **Open on Stepik** link in the task header opens a single browser tab
+  again. The rich comment editor no longer intercepts links outside its own
+  preview, so VS Code's built-in webview handler is the only one that opens the
+  step.
+
 ## [0.4.2] - 2026-11-04
 
 ### Added

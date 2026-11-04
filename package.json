@@ -3,7 +3,7 @@
 	"displayName": "Stepik Fork",
 	"description": "Fork of Stepik for VS Code: solve Stepik problems, read discussions and post comments",
 	"author": "Danil Proskurin (꧁༒☬𝔉𝔜𝔡𝔡𝔡𝔡𝔰𝔰☬༒꧂)",
-	"version": "0.4.2",
+	"version": "0.4.3",
 	"publisher": "FYddddss",
 	"license": "GPL-3.0-only",
 	"engines": {

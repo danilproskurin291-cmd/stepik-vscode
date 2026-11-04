@@ -135,6 +135,99 @@ export function getLegacyMappingPaths(): string[] {
     return paths;
 }
 
+/**
+ * Case- and separator-insensitive key for comparing solution paths. VS Code
+ * reports `file:` URIs with a lowercase drive letter on Windows, while the
+ * mapping is written from Node's `path.resolve`, which keeps the original
+ * casing. Without normalization the submit command fails to find its own
+ * mapping entry.
+ */
+export function getComparableFilePath(filePath: string): string {
+    let resolved: string;
+    try {
+        resolved = fs.realpathSync.native(filePath);
+    } catch {
+        resolved = path.resolve(filePath);
+    }
+
+    const normalized = resolved.normalize('NFC');
+    return process.platform === 'win32' ? normalized.toLowerCase() : normalized;
+}
+
+export function isSameFilePath(left: string, right: string): boolean {
+    return getComparableFilePath(left) === getComparableFilePath(right);
+}
+
+/**
+ * Every place a solution mapping can live. Files created under a previous
+ * account (or before the 0.4.2 migration) remain submittable after switching
+ * accounts or upgrading.
+ */
+export function getStepMappingPaths(): string[] {
+    const candidates: string[] = [];
+    const seen = new Set<string>();
+    const add = (mappingPath: string): void => {
+        const key = getComparableFilePath(mappingPath);
+        if (!seen.has(key)) {
+            seen.add(key);
+            candidates.push(mappingPath);
+        }
+    };
+
+    add(getMappingPath());
+
+    // The common `~/stepik/.stepik` folder is used before an account is
+    // prepared and can also contain a shared mapping from an older build.
+    add(path.join(getStepikServiceDir(), 'mapping.json'));
+
+    const registry = readJson<AccountsRegistry>(getAccountsRegistryPath());
+    for (const account of registry?.accounts ?? []) {
+        const accountDir = resolveAccountDir(account.folder);
+        if (accountDir) {
+            add(path.join(accountDir, '.stepik', 'mapping.json'));
+        }
+    }
+
+    // Pick up account folders that are missing from the registry.
+    try {
+        for (const entry of fs.readdirSync(getStepikRoot(), { withFileTypes: true })) {
+            if (!entry.isDirectory() || entry.name.startsWith('.')) {
+                continue;
+            }
+            add(path.join(getStepikRoot(), entry.name, '.stepik', 'mapping.json'));
+        }
+    } catch {
+        // The root may not exist yet; the active mapping path is enough.
+    }
+
+    // Legacy 0.4.1 mapping and its renamed backups.
+    add(path.join(getLegacyStepikRoot(), '.stepik', 'mapping.json'));
+    try {
+        for (const entry of fs.readdirSync(path.dirname(getLegacyStepikRoot()), {
+            withFileTypes: true
+        })) {
+            if (entry.isDirectory() && entry.name.startsWith('.stepik.backup-')) {
+                add(
+                    path.join(
+                        path.dirname(getLegacyStepikRoot()),
+                        entry.name,
+                        '.stepik',
+                        'mapping.json'
+                    )
+                );
+            }
+        }
+    } catch {
+        // The home folder is always readable in practice; ignore exotic setups.
+    }
+
+    for (const mappingPath of getLegacyMappingPaths()) {
+        add(mappingPath);
+    }
+
+    return candidates;
+}
+
 // Kept in a separate function so this module stays importable in plain Node
 // tests and the `vscode` module is only touched at runtime.
 function vscodeWorkspaceFolders(): string[] {

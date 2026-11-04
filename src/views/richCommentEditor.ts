@@ -791,6 +791,15 @@ export function getRichCommentEditorScript(): string {
             if (!(target instanceof Element)) {
                 return;
             }
+
+            // Only links inside a rich editor host belong to this handler.
+            // The task header also uses data-external and must be left to
+            // VS Code's built-in webview link handler, otherwise the page
+            // opens twice.
+            if (!target.closest('[data-stepik-rich-editor]')) {
+                return;
+            }
+
             var link = target.closest('a[data-external]');
             if (link) {
                 event.preventDefault();
