@@ -1,5 +1,44 @@
 # Changelog
 
+## [0.4.2] - 2026-11-04
+
+### Added
+
+- Per-account workspaces under `~/stepik/<name>/`. The extension stores the
+  immutable Stepik account ID and display name, so two accounts with the same
+  name get separate folders (`<name> (<ID>)`) and cannot overwrite each other.
+- Automatic migration of the legacy `~/.stepik` folder into the first account
+  workspace. Mapping paths are rewritten, and the old folder is kept as
+  `.stepik.backup-<timestamp>`.
+- **Stepik: Archive Account Solutions** and an automatic archive before logout
+  or an account switch. The ZIP is written to
+  `~/stepik/archive/<account-ID>.zip` and contains all solutions plus
+  `.stepik/account.json`.
+- Rich comment editor with a live preview by default and a Markdown mode
+  toggle. The toolbar supports bold, italic, underline, strikethrough, inline
+  code, superscript, subscript, quotes, bulleted and numbered lists, code
+  blocks with a language, a formula editor with live KaTeX preview, image
+  upload and drag-and-drop, and links with separate URL and text fields.
+- Copy-link, edit, and delete actions for comments. Own comments show static
+  like and dislike counts instead of interactive voting buttons.
+- Progress panel pinned to the top-right of the task panel with a day streak,
+  earned and maximum points, a Stepik-style progress line with certificate
+  threshold markers, and hover tooltips for the maximum streak, points
+  remaining to a certificate, and estimated study time.
+
+### Fixed
+
+- The Markdown textarea no longer appears under the rich editor surface.
+- Voting on your own comment no longer causes a Stepik HTTP 403. The host
+  rejects the action with a clear message, and the UI shows only the counts.
+
+### Changed
+
+- Comment like and dislike controls now use Stepik's compact thumb icon and
+  counter style instead of emoji pill buttons.
+- Logout and account switching archive the current account first. If archiving
+  fails, the credentials are kept and logout is cancelled.
+
 ## [0.4.1] - 2026-11-03
 
 ### Changed

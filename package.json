@@ -3,7 +3,7 @@
 	"displayName": "Stepik Fork",
 	"description": "Fork of Stepik for VS Code: solve Stepik problems, read discussions and post comments",
 	"author": "Danil Proskurin (꧁༒☬𝔉𝔜𝔡𝔡𝔡𝔡𝔰𝔰☬༒꧂)",
-	"version": "0.4.1",
+	"version": "0.4.2",
 	"publisher": "FYddddss",
 	"license": "GPL-3.0-only",
 	"engines": {
@@ -39,6 +39,11 @@
 				"command": "stepik.logout",
 				"title": "Stepik: Logout",
 				"icon": "$(sign-out)"
+			},
+			{
+				"command": "stepik.archiveAccount",
+				"title": "Stepik: Archive Account Solutions",
+				"icon": "$(archive)"
 			},
 			{
 				"command": "stepik.refresh",
@@ -132,8 +137,10 @@
 		"lint": "eslint src --ext ts"
 	},
 	"devDependencies": {
+		"@types/adm-zip": "^0.5.8",
 		"@types/markdown-it": "^14.2.0",
 		"@types/node": "^20.10.0",
+		"@types/turndown": "^5.0.6",
 		"@types/vscode": "^1.85.0",
 		"@typescript-eslint/eslint-plugin": "^6.13.0",
 		"@typescript-eslint/parser": "^6.13.0",
@@ -143,10 +150,13 @@
 	},
 	"dependencies": {
 		"@audio/decode-mp4": "^1.3.1",
+		"adm-zip": "^0.6.1",
 		"highlight.js": "^11.12.0",
 		"katex": "^0.16.47",
 		"markdown-it": "^14.3.3",
 		"node-fetch": "^3.3.2",
+		"turndown": "^7.2.4",
+		"turndown-plugin-gfm": "^1.0.2",
 		"wasm-media-encoders": "^0.7.0"
 	},
 	"repository": {

@@ -260,6 +260,7 @@ export class StepikTreeProvider implements vscode.TreeDataProvider<TreeItemData>
                     entries.push({
                         step,
                         courseName: this.selectedCourse?.title || '',
+                        courseId: this.selectedCourse?.id,
                         lessonTitle: lesson.title,
                         section,
                         sectionTitle: section.title,
@@ -614,6 +615,7 @@ export class StepikTreeProvider implements vscode.TreeDataProvider<TreeItemData>
         const context: StepContext = {
             step,
             courseName: element.courseName || '',
+            courseId: this.selectedCourse?.id,
             lessonTitle: element.lessonTitle || '',
             section: element.section,
             sectionTitle: element.section?.title,

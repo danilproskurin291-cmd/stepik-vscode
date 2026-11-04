@@ -6,9 +6,10 @@
 > **Author:** Danil Proskurin (꧁༒☬𝔉𝔜𝔡𝔡𝔡𝔡𝔰𝔰☬༒꧂).
 > Solve [Stepik](https://stepik.org) problems directly in VS Code.
 
-The project is distributed under GPL-3.0. This version adds comments, the
-solutions forum, Markdown formatting, voting, formula rendering, exams,
-step navigation, and a built-in video player.
+The project is distributed under GPL-3.0. This version adds comments with a
+rich editor, the solutions forum, Markdown formatting, voting, formula
+rendering, exams, step navigation, a built-in video player, per-account
+workspaces, ZIP archives of solutions, and a progress panel.
 
 ## Contents
 
@@ -26,6 +27,7 @@ step navigation, and a built-in video player.
 - [Math](#math)
 - [Commands and shortcuts](#commands-and-shortcuts)
 - [Solutions folder](#solutions-folder)
+- [Accounts and archives](#accounts-and-archives)
 - [Updating and uninstalling](#updating-and-uninstalling)
 - [Troubleshooting](#troubleshooting)
 - [Building from source](#building-from-source)
@@ -42,15 +44,20 @@ step navigation, and a built-in video player.
 - **Back** and **Next** buttons for navigation inside a section;
 - background preloading of neighbouring steps;
 - solution submission from the editor;
-- `~/.stepik` solutions folder organized by course and lesson;
+- `~/stepik/<account-name>` solutions folder organized by course and lesson;
+- a separate folder and ZIP archive for every Stepik account;
 - the solutions folder is created automatically and does not need to be opened
   in VS Code;
 - all graded Stepik problem types;
 - exam sections with a timer and submission lock;
 - built-in video player;
+- progress panel with a day streak, points, percent complete, and points
+  remaining to a certificate;
 - comments, replies, voting, and sorting;
 - solutions forum for every graded problem type;
-- Markdown and syntax highlighting in comments;
+- rich comment editor with live preview, Markdown mode, formulas, images, and
+  code blocks;
+- copy-link, edit, and delete actions for your own comments;
 - KaTeX/MathML formula rendering.
 
 ## Requirements
@@ -70,12 +77,12 @@ and your OAuth credentials.
 1. Open the
    [Releases](https://github.com/danilproskurin291-cmd/stepik-vscode/releases)
    page.
-2. Download the latest `stepik-vscode-fork-0.4.1.vsix`.
+2. Download the latest `stepik-vscode-fork-0.4.2.vsix`.
 3. Install it in one of these ways:
    - from a terminal:
 
      ```bash
-     code --install-extension stepik-vscode-fork-0.4.1.vsix
+     code --install-extension stepik-vscode-fork-0.4.2.vsix
      ```
 
    - or in VS Code: **Extensions → … → Install from VSIX…**, then select the
@@ -92,25 +99,26 @@ Node.js 18+ is required.
 npm ci
 npm run build
 npx @vscode/vsce package
-code --install-extension stepik-vscode-fork-0.4.1.vsix
+code --install-extension stepik-vscode-fork-0.4.2.vsix
 ```
 
 Build output: `dist/extension.js` and `dist/audioWorker.js`.
-Installable package: `stepik-vscode-fork-0.4.1.vsix`.
+Installable package: `stepik-vscode-fork-0.4.2.vsix`.
 
 ## First launch
 
 1. Click the **Stepik** icon in the activity bar.
-2. The extension automatically creates the `~/.stepik` solutions folder. It
-   does not need to be opened as a workspace.
-3. Log in with the icon in the panel title or the **Stepik: Login** command.
-4. Enter your Stepik OAuth application credentials.
-5. Choose a course with **Stepik: Select Course**.
-6. Open any step in the tree.
+2. Log in with the icon in the panel title or the **Stepik: Login** command.
+3. Enter your Stepik OAuth application credentials.
+4. Choose a course with **Stepik: Select Course**.
+5. Open any step in the tree.
 
-The solutions folder is independent of the project opened in VS Code. Solution
-files and the file-to-step mapping are always stored in `~/.stepik`. See
-[Solutions folder](#solutions-folder) for details.
+After login the extension automatically creates the
+`~/stepik/<account-name>` solutions folder. It does not need to be opened as a
+workspace. If you used version 0.4.1 or older, the contents of `~/.stepik` are
+migrated into the first account folder automatically, and the old folder is
+kept as `~/.stepik.backup-<time>`. See [Solutions folder](#solutions-folder) and
+[Accounts and archives](#accounts-and-archives) for details.
 
 ## OAuth setup
 
@@ -134,16 +142,20 @@ Secret. The secret is entered as a password.
 
 The credentials are stored in VS Code `SecretStorage`, not in regular settings.
 The access token is refreshed automatically while the Client ID and Client
-Secret are stored. **Stepik: Logout** removes the saved credentials and closes
-the task panel.
+Secret are stored. **Stepik: Logout** archives the solutions first, then
+removes the saved credentials and closes the task panel.
 
 To switch Stepik accounts, run **Stepik: Logout**, then **Stepik: Login** with
-the credentials of another application.
+the credentials of another application. The current account is archived, and
+the new account gets a separate folder.
 
 ## Login and course selection
 
 - **Stepik: Login** — sign in with Client ID and Client Secret.
-- **Stepik: Logout** — sign out and remove the saved credentials.
+- **Stepik: Logout** — archive the solutions, sign out, and remove the saved
+  credentials.
+- **Stepik: Archive Account Solutions** — archive the current account without
+  signing out.
 - **Stepik: Select Course** — choose one of your courses.
 - **Stepik: Refresh** — reload the course tree and progress.
 
@@ -186,6 +198,20 @@ Opening a step opens the **Stepik Task** panel beside the editor. It contains:
 For code problems, the solution file opens in the editor while the task panel
 stays beside it.
 
+### Progress panel
+
+The progress block is shown in the top-right corner of the task panel:
+
+- **day streak** — how many days in a row you have studied; hover to see the
+  maximum streak;
+- **points** — earned and maximum (`269 / 2181`);
+- **progress line** — a bar with markers for the regular and distinction
+  certificate thresholds;
+- **certificate** — hover over the points to see how many points remain and the
+  estimated study time.
+
+The values come from Stepik and are refreshed when steps are opened.
+
 ## Solving problems
 
 ### Code problems
@@ -194,7 +220,7 @@ stays beside it.
 2. Choose a programming language in the task panel.
 3. Click **Open in Editor**.
 4. The extension creates and opens a file at
-   `~/.stepik/<course>/<lesson>/step-<number>.<extension>`.
+   `~/stepik/<account-name>/<course>/<lesson>/step-<number>.<extension>`.
 5. Write your solution and save the file.
 6. Submit it:
    - with the cloud-upload button in the editor title, or
@@ -351,31 +377,39 @@ The following orders are available:
 
 ### Posting a comment
 
+The rich editor with a live preview is shown by default. Use the **Markdown**
+button on the editor toolbar to switch to raw Markdown, and **Preview** to
+switch back.
+
 1. Scroll the task panel to the discussion.
 2. Type in the **Write a comment…** field.
-3. Use the formatting toolbar if needed: **B**, **I**, `</>`, link, quote,
-   list, code block.
+3. Use the formatting toolbar if needed:
+   - **B**, **I**, **U**, strikethrough, and inline code;
+   - superscript and subscript text;
+   - quote, bulleted list, and numbered list;
+   - code block with a language selector;
+   - LaTeX formula with a live preview and a link to the reference;
+   - image: insert from a file or drag and drop it into the editor;
+   - link with separate URL and text fields.
 4. Click **Send** or press `Ctrl+Enter`.
 
-To reply to a specific comment, click **Reply** below it.
+To reply to a specific comment, click **Reply** below it. Your own comments
+have **Edit**, **Delete**, and **Link** actions; the last one copies a direct
+link to the comment.
 
-Markdown supports:
-
-- headings, lists, quotes, tables;
-- strikethrough, inline code, fenced code;
-- links and autolinks;
-- formulas.
-
-Raw HTML is not executed: Markdown is rendered with `html: false`, and the
-result is sanitized.
+Markdown mode supports headings, lists, quotes, tables, strikethrough, inline
+code, fenced code, links, autolinks, and formulas. Raw HTML is not executed:
+Markdown is rendered with `html: false`, and the result is sanitized.
 
 ### Comment voting
 
-- the **▲** and **▼** buttons show the current score;
+- thumb-icon buttons with counters show the current score, matching Stepik;
 - clicking the active button removes the vote;
-- switching between ▲ and ▼ changes the vote;
+- switching between like and dislike changes the vote;
 - counters update optimistically and roll back on error;
-- buttons are hidden when Stepik does not allow voting.
+- buttons are hidden when Stepik does not allow voting;
+- your own comments show static counts without buttons, because Stepik does
+  not allow voting for your own comments.
 
 ### Solutions forum
 
@@ -405,6 +439,11 @@ inside formulas is automatically wrapped in `\text{...}`. Content inside
 `<pre>`, `<code>`, `<script>`, `<style>`, and existing `<math>` blocks is not
 parsed.
 
+In the comment editor, the **Formula** button opens a dialog with a live KaTeX
+preview and a link to
+<http://en.wikibooks.org/wiki/LaTeX/Mathematics>. The formula is inserted as
+`\(...\)`.
+
 Inline formulas stay inline with the surrounding text, while display formulas
 are centered on their own line.
 
@@ -415,7 +454,8 @@ Command palette: `Ctrl+Shift+P` (Windows/Linux) or `Cmd+Shift+P` (macOS).
 | Command | Action |
 | --- | --- |
 | **Stepik: Login** | Sign in with Client ID and Client Secret |
-| **Stepik: Logout** | Sign out and remove saved credentials |
+| **Stepik: Logout** | Archive solutions, sign out, and remove saved credentials |
+| **Stepik: Archive Account Solutions** | Create a ZIP archive of the current account |
 | **Stepik: Refresh** | Reload the tree and progress |
 | **Stepik: Select Course** | Choose a course |
 | **Stepik: Submit Solution** | Submit the current solution file |
@@ -438,19 +478,23 @@ settings: everything is configured by logging in and selecting a course.
 
 ## Solutions folder
 
-Solutions are always stored in `~/.stepik`, regardless of which folder is open
-in VS Code:
+Solutions are stored in `~/stepik/<account-name>`, regardless of which folder
+is open in VS Code:
 
 ```text
-~/.stepik/
-├── Course 1/
-│   ├── Lesson 1/
-│   │   ├── step-1.py
-│   │   └── step-2.py
-│   └── Lesson 2/
-│       └── step-1.cpp
-└── .stepik/
-    └── mapping.json
+~/stepik/
+├── DanilProskurin/
+│   ├── Course 1/
+│   │   ├── Lesson 1/
+│   │   │   ├── step-1.py
+│   │   │   └── step-2.py
+│   │   └── Lesson 2/
+│   │       └── step-1.cpp
+│   └── .stepik/
+│       ├── account.json
+│       └── mapping.json
+└── archive/
+    └── 1405465614.zip
 ```
 
 Files are named `step-<number>.<extension>`. The extension is chosen from the
@@ -459,17 +503,34 @@ on.
 
 The `.stepik/mapping.json` service file maps absolute file paths to Stepik
 steps. Without it, the submit command does not know which solution belongs to
-which step.
+which step. `.stepik/account.json` stores the immutable account ID and name.
 
 Therefore:
 
-- `~/.stepik` does not need to be opened as a workspace — the extension creates
-  it automatically on first launch;
-- you can work in any project: solutions are still saved in `~/.stepik`;
+- `~/stepik` does not need to be opened as a workspace — the extension creates
+  it automatically on login;
+- you can work in any project: solutions are still saved in
+  `~/stepik/<account-name>`;
 - do not move solution files manually without reopening the step.
 
-If `~/.stepik` is opened in VS Code anyway, the extension keeps working as
+If `~/stepik` is opened in VS Code anyway, the extension keeps working as
 usual.
+
+## Accounts and archives
+
+- An account is identified by an immutable Stepik ID and its display name.
+  Names may repeat, IDs never do. Two accounts with the same name therefore get
+  different folders: `<name>` and `<name> (<ID>)`.
+- Before logout or an account switch, the extension creates a ZIP archive at
+  `~/stepik/archive/<ID>.zip`. It contains all solutions and the `.stepik`
+  folder with `account.json` and `mapping.json`.
+- You can create the archive manually with
+  **Stepik: Archive Account Solutions**.
+- If archiving fails, logout is cancelled: credentials are kept and no data is
+  lost.
+- On the first launch of 0.4.2, the old `~/.stepik` folder is migrated into the
+  current account folder. Paths in `mapping.json` are rewritten, and the old
+  folder is kept as `~/.stepik.backup-<time>`.
 
 ## Updating and uninstalling
 
@@ -488,9 +549,9 @@ Saved OAuth credentials, the selected course, and solution files stay in place.
 2. Click **Uninstall**.
 3. Reload the window.
 
-You can also delete the `~/.stepik` folder with your solutions. Back it up
-first if you need the files. The **Stepik: Logout** command removes the saved
-credentials from VS Code.
+You can also delete the `~/stepik` folder with your solutions and archives.
+Back it up first if you need the files. The **Stepik: Logout** command creates
+an archive first, then removes the saved credentials from VS Code.
 
 ## Troubleshooting
 
@@ -516,7 +577,7 @@ credentials from VS Code.
 
 ### Submission does not work
 
-- Make sure the `~/.stepik` folder is writable.
+- Make sure the `~/stepik/<account-name>` folder is writable.
 - Reopen the step from the tree to create or update the file-to-step mapping.
 - Check that the file was not moved after creation.
 - For an exam, check that the session is active and time has not expired.
@@ -566,7 +627,7 @@ npx tsc --noEmit
 ```
 
 Build output: `dist/extension.js` and `dist/audioWorker.js`.
-Installable package: `stepik-vscode-fork-0.4.1.vsix`.
+Installable package: `stepik-vscode-fork-0.4.2.vsix`.
 
 ## Limitations
 

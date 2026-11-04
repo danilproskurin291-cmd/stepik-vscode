@@ -1,27 +1,31 @@
 import * as vscode from 'vscode';
+import * as fs from 'fs';
 import { StepikAuth } from './auth';
 import { StepikTreeProvider } from './providers/treeProvider';
 import { StepikApi } from './api/stepikApi';
 import { StepikWebview } from './views/webview';
 import { StepikSubmit } from './submit';
 import { StepContext } from './stepContext';
-import { ensureStepikRoot, getStepikRoot } from './stepikPaths';
+import { getActiveSolutionRoot } from './stepikPaths';
+import { AccountWorkspace } from './accountWorkspace';
 
 let api: StepikApi;
 let treeProvider: StepikTreeProvider;
 
 /**
- * Solutions are stored in `~/.stepik` regardless of the open workspace. The
- * folder is created automatically; it never has to be opened as a workspace.
+ * Solutions are stored in the active account folder under `~/stepik`,
+ * regardless of the open workspace. The folder is created automatically; it
+ * never has to be opened as a workspace.
  */
 function ensureSolutionDirectory(outputChannel: vscode.OutputChannel): void {
+    const folder = getActiveSolutionRoot();
     try {
-        ensureStepikRoot();
-        outputChannel.appendLine(`[Solutions] Папка решений: ${getStepikRoot()}`);
+        fs.mkdirSync(folder, { recursive: true });
+        outputChannel.appendLine(`[Solutions] Папка решений: ${folder}`);
     } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);
         vscode.window.showErrorMessage(
-            `Не удалось создать папку решений ${getStepikRoot()}: ${detail}`
+            `Не удалось создать папку решений ${folder}: ${detail}`
         );
     }
 }
@@ -34,6 +38,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const auth = new StepikAuth(context);
     api = new StepikApi(auth);
     treeProvider = new StepikTreeProvider(api, context);
+    const accountWorkspace = new AccountWorkspace(api, outputChannel);
     const webview = new StepikWebview(context, api, treeProvider, outputChannel);
     const submit = new StepikSubmit(api, treeProvider, outputChannel);
 
@@ -68,16 +73,67 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         webview,
 
         vscode.commands.registerCommand('stepik.login', async () => {
-            await auth.login();
+            const loggedIn = await auth.login();
+            if (!loggedIn) {
+                return;
+            }
             api.clearCache();
+            try {
+                const state = await accountWorkspace.ensureCurrentAccount();
+                ensureSolutionDirectory(outputChannel);
+                if (state.migratedLegacy) {
+                    vscode.window.showInformationMessage(
+                        `Данные Stepik 0.4.1 перенесены в ${state.folder}`
+                    );
+                }
+            } catch (error) {
+                const detail = error instanceof Error ? error.message : String(error);
+                outputChannel.appendLine(
+                    `[Account] Не удалось подготовить папку аккаунта: ${detail}`
+                );
+                vscode.window.showErrorMessage(
+                    `Не удалось подготовить папку аккаунта: ${detail}`
+                );
+            }
             treeProvider.refresh();
         }),
 
         vscode.commands.registerCommand('stepik.logout', async () => {
+            const archive = await accountWorkspace.archiveCurrentAccount();
+            if (!archive.ok) {
+                vscode.window.showErrorMessage(
+                    `Не удалось архивировать решения перед выходом: ${
+                        archive.error || 'неизвестная ошибка'
+                    }. Выход отменён, данные не удалены.`
+                );
+                return;
+            }
             await auth.logout();
             api.clearCache();
             webview.resetForLogout();
+            accountWorkspace.clearActiveAccount();
             treeProvider.refresh();
+        }),
+
+        vscode.commands.registerCommand('stepik.archiveAccount', async () => {
+            const result = await accountWorkspace.archiveCurrentAccount();
+            if (!result.ok) {
+                vscode.window.showErrorMessage(
+                    `Не удалось архивировать решения: ${
+                        result.error || 'неизвестная ошибка'
+                    }`
+                );
+                return;
+            }
+            if (result.path) {
+                vscode.window.showInformationMessage(
+                    `Архив решений сохранён: ${result.path}`
+                );
+            } else {
+                vscode.window.showInformationMessage(
+                    'Нет активного аккаунта для архивирования.'
+                );
+            }
         }),
 
         vscode.commands.registerCommand('stepik.refresh', () => {
@@ -161,8 +217,28 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         outputChannel
     );
 
-    // Check if already logged in
+    // Check if already logged in. Preparing the account folder also migrates
+    // the pre-0.4.2 `~/.stepik` layout on the first launch after upgrade.
     if (await auth.isLoggedIn()) {
+        try {
+            const state = await accountWorkspace.ensureCurrentAccount();
+            outputChannel.appendLine(
+                `[Account] Активный аккаунт: ${state.account.name} (ID ${state.account.id}), папка ${state.folder}`
+            );
+            if (state.migratedLegacy) {
+                vscode.window.showInformationMessage(
+                    `Данные Stepik 0.4.1 перенесены в ${state.folder}`
+                );
+            }
+        } catch (error) {
+            const detail = error instanceof Error ? error.message : String(error);
+            outputChannel.appendLine(
+                `[Account] Не удалось подготовить папку аккаунта: ${detail}`
+            );
+            vscode.window.showWarningMessage(
+                `Не удалось подготовить папку аккаунта Stepik: ${detail}. Решения сохраняются в общей папке ~/stepik.`
+            );
+        }
         treeProvider.refresh();
     }
 

@@ -54,6 +54,11 @@ export interface Course {
     title: string;
     sections: number[];
     is_certificate_issued?: boolean;
+    is_certificate_auto_issued?: boolean;
+    certificate_regular_threshold?: number | null;
+    certificate_distinction_threshold?: number | null;
+    user_certificate?: number | null;
+    time_to_complete?: number | null;
     progress: string;  // progress ID like "course-12345"
     begin_date?: string | null;
     end_date?: string | null;
@@ -70,6 +75,33 @@ export interface Progress {
     n_steps_passed: number;
     score: string;
     cost: number;
+}
+
+/** Identity returned by /stepics/1. The account id is immutable. */
+export interface CurrentUser {
+    id: number;
+    fullName?: string;
+    alias?: string | null;
+    avatar?: string | null;
+}
+
+export interface UserActivitySummary {
+    days: number;
+    id: number;
+    max_strike: number;
+    recent_strike: number;
+    solved: number;
+    solved_today: number;
+    pins: number[];
+}
+
+export interface Certificate {
+    id: number;
+    course?: number;
+    user?: number;
+    type?: string;
+    issue_date?: string;
+    [key: string]: unknown;
 }
 
 export interface Section {
@@ -373,8 +405,12 @@ export interface StepikComment {
     vote?: string | CommentVote | null;
     actions?: {
         vote?: boolean;
+        edit?: boolean;
+        delete?: boolean;
         [key: string]: unknown;
     };
+    can_edit?: boolean;
+    can_delete?: boolean;
     thread?: string;
     submission?: number | null;
     edited_at?: string | null;
@@ -544,16 +580,33 @@ export class StepikApi {
         return JSON.parse(text) as T;
     }
 
-    async getCurrentUser(): Promise<{ id: number }> {
-        const data = await this.cachedRequest<{ users: Array<{ id: number }> }>(
-            '/stepics/1',
-            5 * 60_000
-        );
+    async getCurrentUser(): Promise<CurrentUser> {
+        const data = await this.cachedRequest<{
+            users?: Array<{
+                id: number;
+                full_name?: string;
+                first_name?: string;
+                last_name?: string;
+                alias?: string | null;
+                avatar?: string | null;
+            }>;
+        }>('/stepics/1', 5 * 60_000);
         const user = data.users?.[0];
         if (!user) {
             throw new Error('Не удалось определить пользователя Stepik.');
         }
-        return { id: user.id };
+
+        const composedName = [user.first_name, user.last_name]
+            .map(part => (part || '').trim())
+            .filter(Boolean)
+            .join(' ');
+        const fullName = (user.full_name || composedName || user.alias || '').trim();
+        return {
+            id: user.id,
+            fullName: fullName || undefined,
+            alias: user.alias ?? undefined,
+            avatar: user.avatar ?? undefined
+        };
     }
 
     async getUserCourses(): Promise<Course[]> {
@@ -970,6 +1023,48 @@ export class StepikApi {
     }
 
     /**
+     * Edit an existing comment. Stepik accepts PUT /comments/{id} with the
+     * comment id and HTML text; PATCH is rejected with 403.
+     */
+    async updateComment(commentId: number, text: string): Promise<{
+        comment: StepikComment;
+        users: CommentUser[];
+        votes: CommentVote[];
+        submissions: Submission[];
+    }> {
+        const data = await this.request<{
+            comments: StepikComment[];
+            users?: CommentUser[];
+            votes?: CommentVote[];
+            submissions?: Submission[];
+        }>(`/comments/${commentId}`, {
+            method: 'PUT',
+            body: JSON.stringify({
+                comment: {
+                    id: commentId,
+                    text
+                }
+            })
+        });
+
+        this.invalidateCache(['/comments', '/discussion-proxies']);
+        return {
+            comment: data.comments[0],
+            users: data.users || [],
+            votes: data.votes || [],
+            submissions: data.submissions || []
+        };
+    }
+
+    /** Soft-delete a comment authored by the current user. */
+    async deleteComment(commentId: number): Promise<void> {
+        await this.request(`/comments/${commentId}`, {
+            method: 'DELETE'
+        });
+        this.invalidateCache(['/comments', '/discussion-proxies', '/discussion-threads']);
+    }
+
+    /**
      * Load one page of direct replies to a comment. Stepik caps page_size at
      * 20 items, even when a larger value is requested, so callers that need a
      * bigger batch must combine several pages.
@@ -1219,12 +1314,38 @@ export class StepikApi {
 
     async getCourseProgress(courseId: number): Promise<Progress | null> {
         try {
-            const data = await this.request<{ progresses: Progress[] }>(
-                `/progresses/course-${courseId}`
+            // Course progress ids have the form `78-<course id>`. The old
+            // `course-<id>` form is not recognized by the API.
+            const data = await this.cachedRequest<{ progresses: Progress[] }>(
+                `/progresses/78-${courseId}`,
+                60_000
             );
             return data.progresses[0] || null;
         } catch {
             return null;
+        }
+    }
+
+    async getUserActivitySummary(userId: number): Promise<UserActivitySummary | null> {
+        try {
+            const data = await this.cachedRequest<{
+                'user-activity-summaries'?: UserActivitySummary[];
+            }>(`/user-activity-summaries/${userId}`, 60_000);
+            return data['user-activity-summaries']?.[0] || null;
+        } catch {
+            return null;
+        }
+    }
+
+    async getCertificates(userId: number): Promise<Certificate[]> {
+        try {
+            const data = await this.cachedRequest<{ certificates?: Certificate[] }>(
+                `/certificates?order=-id&page=1&user=${userId}`,
+                60_000
+            );
+            return data.certificates || [];
+        } catch {
+            return [];
         }
     }
 }

@@ -72,6 +72,52 @@ for (const [name, language] of LANGUAGES) {
     hljs.registerLanguage(name, language);
 }
 
+const LANGUAGE_LABELS: { [key: string]: string } = {
+    bash: 'Bash',
+    c: 'C',
+    cpp: 'C++',
+    csharp: 'C#',
+    css: 'CSS',
+    dart: 'Dart',
+    delphi: 'Delphi/Pascal',
+    go: 'Go',
+    haskell: 'Haskell',
+    java: 'Java',
+    javascript: 'JavaScript',
+    json: 'JSON',
+    julia: 'Julia',
+    kotlin: 'Kotlin',
+    lua: 'Lua',
+    markdown: 'Markdown',
+    matlab: 'MATLAB/Octave',
+    perl: 'Perl',
+    php: 'PHP',
+    plaintext: 'Текст',
+    powershell: 'PowerShell',
+    python: 'Python',
+    r: 'R',
+    ruby: 'Ruby',
+    rust: 'Rust',
+    scala: 'Scala',
+    sql: 'SQL',
+    swift: 'Swift',
+    typescript: 'TypeScript',
+    xml: 'HTML/XML',
+    yaml: 'YAML'
+};
+
+/**
+ * Languages offered by the rich comment editor. Stepik stores the selected
+ * value in `<code class="language-...">`, which is exactly the shape used by
+ * the comment renderer and by highlight.js.
+ */
+export function getCommentCodeLanguages(): Array<{ value: string; label: string }> {
+    return LANGUAGES.map(([value]) => ({
+        value,
+        label: LANGUAGE_LABELS[value] || value
+    }));
+}
+
 /**
  * Stepik stores language ids like "python3.6", "cpp17" or "java11".
  * Convert them to highlight.js names, including common aliases.

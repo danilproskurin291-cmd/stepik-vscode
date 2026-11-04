@@ -8,6 +8,7 @@ import { Section, Step, Unit } from './api/stepikApi';
 export interface StepContext {
     step: Step;
     courseName: string;
+    courseId?: number;
     lessonTitle: string;
     section?: Section;
     sectionTitle?: string;

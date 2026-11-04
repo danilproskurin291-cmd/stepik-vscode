@@ -28,7 +28,7 @@ import {
 } from '../api/stepikApi';
 import { StepikTreeProvider } from '../providers/treeProvider';
 import { StepContext } from '../stepContext';
-import { getMappingPath, ensureStepikRoot } from '../stepikPaths';
+import { getActiveSolutionRoot, getMappingPath } from '../stepikPaths';
 import { getStepTypeTitle } from '../stepTypes';
 import { combineSubmissionFeedback } from '../submissionFeedback';
 import {
@@ -40,6 +40,16 @@ import {
 } from '../exam/examAccess';
 import { ExamSession } from '../api/stepikApi';
 import { highlightCode, highlightCodeBlocks } from './syntaxHighlighter';
+import { getRichCommentEditorScript } from './richCommentEditor';
+import { uploadCommentImage } from '../uploadcare';
+import TurndownService from 'turndown';
+
+// turndown-plugin-gfm ships without TypeScript declarations. Only the GFM
+// plugin is used here (tables, strikethrough and task lists).
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const turndownPluginGfm = require('turndown-plugin-gfm') as {
+    gfm: TurndownService.Plugin;
+};
 
 type CommentSort = 'new' | 'discussed' | 'popular' | 'recent' | 'teacher' | 'mine';
 
@@ -108,6 +118,31 @@ interface WebviewMessage {
     vote?: 'epic' | 'abuse';
     url?: string;
     active?: boolean;
+    format?: 'html' | 'markdown';
+    requestId?: string;
+    name?: string;
+    mimeType?: string;
+    data?: string;
+    markdown?: string;
+    html?: string;
+    formula?: string;
+    display?: boolean;
+}
+
+interface CourseProgressSummary {
+    courseId: number;
+    score: number;
+    cost: number;
+    stepsPassed: number;
+    stepsTotal: number;
+    percent: number;
+    streak: number;
+    maxStreak: number;
+    solved: number;
+    certificateThreshold?: number;
+    certificateDistinctionThreshold?: number;
+    certificateRemaining?: number;
+    studyTimeHours?: number;
 }
 
 export class StepikWebview implements vscode.Disposable {
@@ -151,11 +186,24 @@ export class StepikWebview implements vscode.Disposable {
     private teacherRepliedParents = new Set<number>();
     private currentUserId: number | undefined;
     private readonly commentMarkdown = new MarkdownIt({
-        html: false,
+        // Rich editor payloads are HTML. Markdown is still rendered for the
+        // Markdown mode, and enabling raw HTML keeps both round-trips stable.
+        html: true,
         linkify: true,
         breaks: true,
         typographer: false
     });
+    private readonly commentTurndown = new TurndownService({
+        headingStyle: 'atx',
+        codeBlockStyle: 'fenced',
+        fence: '```',
+        emDelimiter: '*',
+        strongDelimiter: '**',
+        bulletListMarker: '-'
+    });
+    private progressSummary: CourseProgressSummary | undefined;
+    private progressError: string | undefined;
+    private progressToken = 0;
 
     private solutionsThread: DiscussionThread | undefined;
     private solutionsProxy: DiscussionProxy | undefined;
@@ -183,7 +231,18 @@ export class StepikWebview implements vscode.Disposable {
         private api: StepikApi,
         private treeProvider: StepikTreeProvider,
         private outputChannel: vscode.OutputChannel
-    ) {}
+    ) {
+        this.commentTurndown.use(turndownPluginGfm.gfm);
+        // Turndown escapes backslashes, which would turn Stepik's \(...\)
+        // delimiters into \\(...\\). Keep math spans verbatim so switching to
+        // Markdown and back does not break formulas.
+        this.commentTurndown.addRule('stepikMath', {
+            filter: node =>
+                node.nodeName === 'SPAN' &&
+                (node as HTMLElement).classList.contains('math-tex'),
+            replacement: (_content, node) => (node.textContent || '').trim()
+        });
+    }
 
     async showStep(
         stepContext: StepContext,
@@ -318,7 +377,17 @@ export class StepikWebview implements vscode.Disposable {
         // opened, so an ordinary step does not pay for an extra request.
         await Promise.all([
             this.loadInitialComments(step.id, step.discussion_proxy),
-            this.loadSolutionsAvailability(step)
+            this.loadSolutionsAvailability(step),
+            this.loadProgressSummary(stepContext),
+            this.getCurrentUserId().catch(error => {
+                // Comment actions stay available through the comment cache even
+                // if this request fails; the next render will retry.
+                this.outputChannel.appendLine(
+                    `[Comments] Не удалось определить пользователя: ${
+                        error instanceof Error ? error.message : error
+                    }`
+                );
+            })
         ]);
 
         if (!this.panel) {
@@ -977,11 +1046,269 @@ export class StepikWebview implements vscode.Disposable {
         this.currentDatasetFile = undefined;
         this.currentDatasetFileError = undefined;
         this.currentUserId = undefined;
+        this.progressSummary = undefined;
+        this.progressError = undefined;
+        this.progressToken++;
         this.solutionsAvailabilityCache.clear();
         this.assignmentIdCache.clear();
         this.viewedSteps.clear();
         this.viewRequests.clear();
         this.markedVideoSteps.clear();
+    }
+
+    /**
+     * Load course-level indicators shown above the task: day streak, total
+     * points, completed steps and the distance to the regular certificate.
+     * The stepik API exposes them through three separate endpoints, so a
+     * failure of one must not hide the others.
+     */
+    private async loadProgressSummary(stepContext: StepContext): Promise<void> {
+        const courseId = stepContext.courseId;
+        this.progressSummary = undefined;
+        this.progressError = undefined;
+        if (!courseId) {
+            return;
+        }
+
+        const token = ++this.progressToken;
+        try {
+            const [course, progress, user] = await Promise.all([
+                this.api.getCourse(courseId),
+                this.api.getCourseProgress(courseId),
+                this.api.getCurrentUser()
+            ]);
+            const activity = user
+                ? await this.api.getUserActivitySummary(user.id)
+                : null;
+            if (token !== this.progressToken) {
+                return;
+            }
+
+            const score = Math.max(0, Number.parseInt(progress?.score ?? '0', 10) || 0);
+            const cost = Math.max(0, Number(progress?.cost ?? 0) || 0);
+            const stepsTotal = Math.max(0, Number(progress?.n_steps ?? 0) || 0);
+            const stepsPassed = Math.max(
+                0,
+                Number(progress?.n_steps_passed ?? 0) || 0
+            );
+            const regularThreshold =
+                typeof course?.certificate_regular_threshold === 'number' &&
+                course.certificate_regular_threshold > 0
+                    ? course.certificate_regular_threshold
+                    : undefined;
+            const distinctionThreshold =
+                typeof course?.certificate_distinction_threshold === 'number' &&
+                course.certificate_distinction_threshold > 0
+                    ? course.certificate_distinction_threshold
+                    : undefined;
+            const threshold = regularThreshold ?? distinctionThreshold;
+            const percent =
+                stepsTotal > 0
+                    ? Math.round((stepsPassed / stepsTotal) * 1000) / 10
+                    : 0;
+            const certificateRemaining =
+                typeof threshold === 'number' && threshold > 0
+                    ? Math.max(0, threshold - score)
+                    : undefined;
+            const timeToComplete = Math.max(
+                0,
+                Number(course?.time_to_complete ?? 0) || 0
+            );
+
+            // Stepik estimates the remaining study time by scaling the course
+            // duration to the share of points still needed for the certificate.
+            const studyTimeHours =
+                certificateRemaining !== undefined &&
+                certificateRemaining > 0 &&
+                cost > 0 &&
+                timeToComplete > 0
+                    ? Math.round(
+                          (certificateRemaining / cost) *
+                              (timeToComplete / 3600) *
+                              2
+                      ) / 2
+                    : undefined;
+
+            this.progressSummary = {
+                courseId,
+                score,
+                cost,
+                stepsPassed,
+                stepsTotal,
+                percent,
+                streak: Math.max(0, Number(activity?.recent_strike ?? 0) || 0),
+                maxStreak: Math.max(0, Number(activity?.max_strike ?? 0) || 0),
+                solved: Math.max(0, Number(activity?.solved ?? 0) || 0),
+                certificateThreshold:
+                    typeof threshold === 'number' && threshold > 0
+                        ? threshold
+                        : undefined,
+                certificateDistinctionThreshold:
+                    distinctionThreshold !== undefined &&
+                    distinctionThreshold !== threshold
+                        ? distinctionThreshold
+                        : undefined,
+                certificateRemaining,
+                studyTimeHours
+            };
+        } catch (error) {
+            if (token !== this.progressToken) {
+                return;
+            }
+            this.progressSummary = undefined;
+            this.progressError = error instanceof Error ? error.message : String(error);
+            this.outputChannel.appendLine(
+                `[Progress] Не удалось загрузить показатели курса: ${this.progressError}`
+            );
+        }
+    }
+
+    private getProgressHtml(): string {
+        const summary = this.progressSummary;
+        if (!summary) {
+            return this.progressError
+                ? `<div class="progress-panel progress-panel-error" title="${this.escapeHtml(
+                      this.progressError
+                  )}">Не удалось загрузить прогресс</div>`
+                : '';
+        }
+
+        const points =
+            summary.cost > 0
+                ? `${summary.score}/${summary.cost}`
+                : String(summary.score);
+        const streakWord = this.pluralizeRu(summary.streak, 'день', 'дня', 'дней');
+        const maxStreak = Math.max(summary.maxStreak, summary.streak);
+        const maxStreakWord = this.pluralizeRu(maxStreak, 'день', 'дня', 'дней');
+        const remaining = summary.certificateRemaining;
+        const progressPercent =
+            summary.cost > 0
+                ? Math.min(100, Math.max(0, (summary.score / summary.cost) * 100))
+                : 0;
+        const markerThresholds = [
+            summary.certificateThreshold,
+            summary.certificateDistinctionThreshold
+        ].filter((value): value is number => typeof value === 'number' && value > 0);
+        const markerPositions =
+            summary.cost > 0
+                ? Array.from(
+                      new Set(
+                          markerThresholds.map(value =>
+                              Number(
+                                  Math.min(
+                                      100,
+                                      Math.max(0, (value / summary.cost) * 100)
+                                  ).toFixed(2)
+                              )
+                          )
+                      )
+                  ).sort((a, b) => a - b)
+                : [];
+        const progressMarkers = markerPositions
+            .map(
+                percent =>
+                    `<span class="progress-line-marker" style="left: ${percent}%"></span>`
+            )
+            .join('');
+        let tooltip = '';
+        if (summary.certificateThreshold && remaining !== undefined) {
+            const pointsLine =
+                remaining > 0
+                    ? `Получить до сертификата: <span>${this.formatCount(
+                          remaining
+                      )} ${this.pluralizeRu(
+                          remaining,
+                          'балл',
+                          'балла',
+                          'баллов'
+                      )}</span>`
+                    : 'Сертификат получен';
+            const timeLine =
+                remaining > 0 && summary.studyTimeHours !== undefined
+                    ? `<div class="progress-tooltip-line">Учиться: <span>${this.formatStudyTime(
+                          summary.studyTimeHours
+                      )}</span></div>`
+                    : '';
+            tooltip = `
+                <div class="progress-tooltip" id="progress-tooltip" role="tooltip">
+                    <div class="progress-tooltip-line">${pointsLine}</div>
+                    ${timeLine}
+                </div>
+            `;
+        }
+
+        return `
+            <div class="progress-panel" id="progress-panel" role="group" aria-label="Прогресс по курсу">
+                <div class="progress-streak" role="img" tabindex="0" aria-label="Серия: ${summary.streak} ${streakWord}. Максимальная серия: ${maxStreak} ${maxStreakWord}" aria-describedby="progress-streak-tooltip">
+                    <svg class="progress-streak-icon" viewBox="0 0 40 40" aria-hidden="true" focusable="false">
+                        <g clip-path="url(#stepik-streak-clip)" fill-rule="evenodd" clip-rule="evenodd" fill="currentColor">
+                            <path d="M24.891 36.826c1.45-.739 2.868-2.122 6.34-5.595 3.473-3.472 4.856-4.89 5.595-6.34a10.774 10.774 0 000-9.782c-.739-1.45-2.122-2.868-5.595-6.34-3.472-3.473-4.89-4.856-6.34-5.595a10.774 10.774 0 00-9.782 0c-1.45.739-2.868 2.122-6.34 5.595-3.473 3.472-4.856 4.89-5.595 6.34a10.774 10.774 0 000 9.782c.739 1.45 2.122 2.868 5.595 6.34 3.472 3.473 4.89 4.856 6.34 5.595a10.774 10.774 0 009.782 0zM1.392 25.799c.919 1.803 2.6 3.484 5.962 6.847 3.363 3.362 5.044 5.043 6.847 5.962a12.774 12.774 0 0011.598 0c1.803-.919 3.484-2.6 6.847-5.962 3.362-3.363 5.043-5.044 5.962-6.847a12.774 12.774 0 000-11.598c-.919-1.803-2.6-3.484-5.962-6.847-3.363-3.362-5.044-5.043-6.847-5.962a12.774 12.774 0 00-11.598 0c-1.803.919-3.484 2.6-6.847 5.962-3.362 3.363-5.043 5.044-5.962 6.847a12.774 12.774 0 000 11.598z"></path>
+                            <path d="M21.398 9.083a1 1 0 01.594 1.041L21.132 17H29a1 1 0 01.768 1.64l-10 12a1 1 0 01-1.76-.764l.86-6.876H11a1 1 0 01-.768-1.64l10-12a1 1 0 011.166-.277zM13.135 21H20a1 1 0 01.992 1.124l-.577 4.616 6.45-7.74H20a1 1 0 01-.992-1.124l.577-4.616-6.45 7.74z"></path>
+                        </g>
+                        <defs>
+                            <clipPath id="stepik-streak-clip">
+                                <path fill="currentColor" d="M0 0h40v40H0z"></path>
+                            </clipPath>
+                        </defs>
+                    </svg>
+                    <span class="progress-streak-count">${summary.streak}</span>
+                    <div class="progress-tooltip progress-tooltip-streak" id="progress-streak-tooltip" role="tooltip">
+                        <div class="progress-tooltip-title">Серия занятий</div>
+                        <div class="progress-tooltip-line">${summary.streak} ${streakWord} без перерыва</div>
+                        <div class="progress-tooltip-line">Максимальная серия: <span>${maxStreak} ${maxStreakWord}</span></div>
+                    </div>
+                </div>
+                <div class="progress-course"${tooltip ? ' tabindex="0" aria-describedby="progress-tooltip"' : ''}>
+                    <div class="progress-course-row">
+                        <span class="progress-course-label">Прогресс по курсу:</span>
+                        <span class="progress-course-score">${this.escapeHtml(points)}</span>
+                    </div>
+                    <div class="progress-line" role="progressbar" aria-label="Прогресс по курсу" aria-valuemin="0" aria-valuemax="${summary.cost}" aria-valuenow="${summary.score}">
+                        <div class="progress-line-track">
+                            <span class="progress-line-fill" style="width: ${progressPercent.toFixed(2)}%"></span>
+                            ${progressMarkers}
+                        </div>
+                    </div>
+                    ${tooltip}
+                </div>
+            </div>
+        `;
+    }
+
+    private formatCount(value: number): string {
+        return String(Math.max(0, Math.trunc(value))).replace(
+            /\B(?=(\d{3})+(?!\d))/g,
+            ' '
+        );
+    }
+
+    private formatStudyTime(hours: number): string {
+        const rounded = Math.round(hours * 2) / 2;
+        if (!Number.isFinite(rounded) || rounded <= 0) {
+            return 'меньше часа';
+        }
+        const value = Number.isInteger(rounded)
+            ? String(rounded)
+            : rounded.toFixed(1).replace('.', ',');
+        const word = Number.isInteger(rounded)
+            ? this.pluralizeRu(rounded, 'час', 'часа', 'часов')
+            : 'часа';
+        return `${value} ${word}`;
+    }
+
+    private pluralizeRu(value: number, one: string, few: string, many: string): string {
+        const abs = Math.abs(value) % 100;
+        const last = abs % 10;
+        if (abs > 10 && abs < 20) {
+            return many;
+        }
+        if (last === 1) {
+            return one;
+        }
+        if (last >= 2 && last <= 4) {
+            return few;
+        }
+        return many;
     }
 
     private async loadInitialComments(
@@ -2137,7 +2464,8 @@ export class StepikWebview implements vscode.Disposable {
         text: string,
         parentId?: number,
         thread?: 'default' | 'solutions',
-        submissionId?: number
+        submissionId?: number,
+        format: 'html' | 'markdown' = 'markdown'
     ): Promise<void> {
         if (!this.panel || !this.currentStep) {
             return;
@@ -2145,7 +2473,10 @@ export class StepikWebview implements vscode.Disposable {
 
         const stepId = this.currentStep.step.id;
         const trimmed = (text || '').trim();
-        if (!trimmed) {
+        const plainText =
+            format === 'html' ? this.htmlToText(trimmed) : trimmed;
+        const hasImage = format === 'html' && /<img\b/i.test(trimmed);
+        if (!plainText && !hasImage) {
             await this.panel.webview.postMessage({
                 command: 'commentPostError',
                 parentId,
@@ -2196,7 +2527,7 @@ export class StepikWebview implements vscode.Disposable {
 
             const createdResult = await this.api.createComment(
                 stepId,
-                this.formatCommentForApi(trimmed),
+                this.formatCommentForApi(trimmed, format),
                 parentId,
                 targetThread,
                 attachedSubmission?.id
@@ -2316,6 +2647,280 @@ export class StepikWebview implements vscode.Disposable {
         }
     }
 
+    private async respondToCommentEditor(
+        message: WebviewMessage,
+        data?: Record<string, unknown>,
+        error?: string
+    ): Promise<void> {
+        if (!this.panel || !message.requestId) {
+            return;
+        }
+        await this.panel.webview.postMessage({
+            command: 'commentEditorResponse',
+            requestId: message.requestId,
+            ok: !error,
+            data: data || {},
+            error
+        });
+    }
+
+    private async handleCommentEditorRequest(message: WebviewMessage): Promise<void> {
+        try {
+            switch (message.command) {
+                case 'commentEditorToMarkdown': {
+                    const markdown = this.commentHtmlToMarkdown(message.html || '');
+                    await this.respondToCommentEditor(message, { markdown });
+                    return;
+                }
+                case 'commentEditorToHtml': {
+                    const html = this.formatCommentForApi(
+                        message.markdown || '',
+                        'markdown'
+                    );
+                    await this.respondToCommentEditor(message, { html });
+                    return;
+                }
+                case 'renderMathPreview': {
+                    const formula = (message.formula || '').trim().slice(0, 10000);
+                    if (!formula) {
+                        await this.respondToCommentEditor(message, { html: '' });
+                        return;
+                    }
+                    const html = katex.renderToString(formula, {
+                        displayMode: Boolean(message.display),
+                        throwOnError: false,
+                        strict: 'ignore',
+                        trust: false,
+                        output: 'mathml'
+                    });
+                    await this.respondToCommentEditor(message, { html });
+                    return;
+                }
+                case 'uploadCommentImage': {
+                    if (!message.data) {
+                        throw new Error('Изображение не передано.');
+                    }
+                    const buffer = Buffer.from(message.data, 'base64');
+                    if (buffer.length === 0) {
+                        throw new Error('Файл изображения пуст.');
+                    }
+                    if (buffer.length > 15 * 1024 * 1024) {
+                        throw new Error('Изображение больше 15 МБ.');
+                    }
+                    const uploaded = await uploadCommentImage(
+                        new Uint8Array(buffer),
+                        message.name || 'image.png',
+                        message.mimeType || 'image/png'
+                    );
+                    await this.respondToCommentEditor(message, {
+                        url: uploaded.url,
+                        width: uploaded.width,
+                        height: uploaded.height,
+                        alt: uploaded.name || message.name || ''
+                    });
+                    return;
+                }
+                case 'loadCommentEditor': {
+                    if (!message.commentId) {
+                        throw new Error('Комментарий не найден.');
+                    }
+                    const comment = this.findComment(message.commentId);
+                    if (!comment) {
+                        throw new Error('Комментарий не найден.');
+                    }
+                    await this.respondToCommentEditor(message, {
+                        html: this.sanitizeCommentHtml(comment.text || '')
+                    });
+                    return;
+                }
+                case 'commentEditorResponse':
+                    return;
+                default:
+                    return;
+            }
+        } catch (error) {
+            const detail = error instanceof Error ? error.message : String(error);
+            await this.respondToCommentEditor(message, undefined, detail);
+        }
+    }
+
+    private replaceCachedComment(updated: StepikComment): void {
+        const replaceIn = (list: StepikComment[]): void => {
+            const index = list.findIndex(comment => comment.id === updated.id);
+            if (index >= 0) {
+                list[index] = { ...list[index], ...updated };
+            }
+        };
+
+        replaceIn(this.comments);
+        replaceIn(this.pinnedComments);
+        replaceIn(this.solutionsComments);
+        for (const replies of this.repliesCache.values()) {
+            replaceIn(replies);
+        }
+    }
+
+    private async updateCommentFromEditor(
+        commentId: number,
+        text: string,
+        format: 'html' | 'markdown'
+    ): Promise<void> {
+        if (!this.panel) {
+            return;
+        }
+        const existing = this.findComment(commentId);
+        if (!existing) {
+            await this.panel.webview.postMessage({
+                command: 'commentActionError',
+                commentId,
+                message: 'Комментарий не найден.'
+            });
+            return;
+        }
+
+        const html = this.formatCommentForApi(text, format);
+        if (!this.htmlToText(html) && !/<img\b/i.test(html)) {
+            await this.panel.webview.postMessage({
+                command: 'commentActionError',
+                commentId,
+                message: 'Комментарий не может быть пустым.'
+            });
+            return;
+        }
+
+        try {
+            const result = await this.api.updateComment(commentId, html);
+            const updated: StepikComment = {
+                ...existing,
+                ...(result.comment || {}),
+                id: commentId,
+                text: result.comment?.text || html
+            };
+            for (const user of result.users) {
+                this.commentUsers.set(user.id, user);
+            }
+            this.rememberSubmissions(result.submissions);
+            this.rememberCommentVotes([updated], result.votes);
+            this.replaceCachedComment(updated);
+
+            await this.panel.webview.postMessage({
+                command: 'commentUpdated',
+                commentId,
+                bodyHtml: this.renderCommentBodyHtml(updated)
+            });
+        } catch (error) {
+            const detail = error instanceof Error ? error.message : String(error);
+            this.outputChannel.appendLine(
+                `[Comments] Не удалось изменить комментарий ${commentId}: ${detail}`
+            );
+            await this.panel.webview.postMessage({
+                command: 'commentActionError',
+                commentId,
+                message: `Не удалось изменить комментарий: ${detail}`
+            });
+        }
+    }
+
+    private async deleteCommentFromEditor(commentId: number): Promise<void> {
+        if (!this.panel) {
+            return;
+        }
+        const comment = this.findComment(commentId);
+        if (!comment) {
+            return;
+        }
+
+        const confirmation = await vscode.window.showWarningMessage(
+            'Удалить этот комментарий? Действие нельзя отменить.',
+            { modal: true },
+            'Удалить'
+        );
+        if (confirmation !== 'Удалить') {
+            await this.panel.webview.postMessage({
+                command: 'commentActionCancelled',
+                commentId
+            });
+            return;
+        }
+
+        try {
+            await this.api.deleteComment(commentId);
+            const isSolution =
+                comment.thread === 'solutions' ||
+                this.solutionsComments.some(item => item.id === commentId);
+
+            await this.panel.webview.postMessage({
+                command: 'commentDeleted',
+                commentId,
+                thread: isSolution ? 'solutions' : 'default'
+            });
+
+            if (isSolution) {
+                await this.loadSolutions(true);
+            } else if (this.currentStep) {
+                await this.loadInitialComments(
+                    this.currentStep.step.id,
+                    this.currentStep.step.discussion_proxy,
+                    true
+                );
+                if (!this.commentsError) {
+                    await this.sendCommentsReplacement();
+                }
+            }
+        } catch (error) {
+            const detail = error instanceof Error ? error.message : String(error);
+            this.outputChannel.appendLine(
+                `[Comments] Не удалось удалить комментарий ${commentId}: ${detail}`
+            );
+            await this.panel.webview.postMessage({
+                command: 'commentActionError',
+                commentId,
+                message: `Не удалось удалить комментарий: ${detail}`
+            });
+        }
+    }
+
+    private async copyCommentLink(commentId: number): Promise<void> {
+        if (!this.panel || !this.currentStep) {
+            return;
+        }
+        const comment = this.findComment(commentId);
+        if (!comment) {
+            return;
+        }
+
+        const step = this.currentStep.step;
+        const discussionId = comment.parent ?? comment.id;
+        const params = new URLSearchParams();
+        params.set('discussion', String(discussionId));
+        if (comment.parent) {
+            params.set('reply', String(comment.id));
+        }
+        if (
+            comment.thread === 'solutions' ||
+            this.solutionsComments.some(item => item.id === commentId)
+        ) {
+            params.set('thread', 'solutions');
+        }
+        const url = `https://stepik.org/lesson/${step.lesson}/step/${step.position}?${params.toString()}`;
+
+        try {
+            await vscode.env.clipboard.writeText(url);
+            await this.panel.webview.postMessage({
+                command: 'commentLinkCopied',
+                commentId,
+                url
+            });
+        } catch (error) {
+            const detail = error instanceof Error ? error.message : String(error);
+            await this.panel.webview.postMessage({
+                command: 'commentActionError',
+                commentId,
+                message: `Не удалось скопировать ссылку: ${detail}`
+            });
+        }
+    }
+
     private async changeCommentVote(
         commentId: number,
         value: 'epic' | 'abuse'
@@ -2334,6 +2939,18 @@ export class StepikWebview implements vscode.Disposable {
                 epicCount: Math.max(0, comment?.epic_count || 0),
                 abuseCount: Math.max(0, comment?.abuse_count || 0),
                 message: 'Голосование недоступно для этого комментария.'
+            });
+            return;
+        }
+
+        if (this.currentUserId !== undefined && comment.user === this.currentUserId) {
+            await this.panel.webview.postMessage({
+                command: 'voteError',
+                commentId,
+                vote: this.commentVoteValues.get(commentId) ?? null,
+                epicCount: Math.max(0, Number(comment.epic_count) || 0),
+                abuseCount: Math.max(0, Number(comment.abuse_count) || 0),
+                message: 'Нельзя голосовать за свой комментарий.'
             });
             return;
         }
@@ -2461,10 +3078,19 @@ export class StepikWebview implements vscode.Disposable {
      * and send the resulting safe HTML. Math delimiters ($...$, \(...\), \[...\])
      * are left untouched and are rendered by Stepik/KaTeX when displayed.
      */
-    private formatCommentForApi(text: string): string {
+    private formatCommentForApi(
+        text: string,
+        format: 'html' | 'markdown' = 'markdown'
+    ): string {
         const normalized = text.replace(/\r\n/g, '\n').trim();
         if (!normalized) {
             return '';
+        }
+
+        // The rich editor already produces Stepik-compatible HTML. Only the
+        // sanitizer and the <strike> normalization are applied.
+        if (format === 'html') {
+            return this.sanitizeCommentHtml(normalized);
         }
 
         // Markdown-it consumes backslash escapes such as \( and \[, which are
@@ -2604,12 +3230,44 @@ export class StepikWebview implements vscode.Disposable {
                     message.text || '',
                     message.parentId,
                     message.thread,
-                    message.submissionId
+                    message.submissionId,
+                    message.format === 'html' ? 'html' : 'markdown'
                 );
                 break;
             case 'vote':
                 if (message.commentId && (message.vote === 'epic' || message.vote === 'abuse')) {
                     await this.changeCommentVote(message.commentId, message.vote);
+                }
+                break;
+            case 'commentEditorToMarkdown':
+            case 'commentEditorToHtml':
+            case 'renderMathPreview':
+            case 'uploadCommentImage':
+            case 'loadCommentEditor':
+                await this.handleCommentEditorRequest(message);
+                break;
+            case 'updateComment':
+                if (message.commentId) {
+                    await this.updateCommentFromEditor(
+                        message.commentId,
+                        message.text || '',
+                        message.format === 'html' ? 'html' : 'markdown'
+                    );
+                }
+                break;
+            case 'deleteComment':
+                if (message.commentId) {
+                    await this.deleteCommentFromEditor(message.commentId);
+                }
+                break;
+            case 'copyCommentLink':
+                if (message.commentId) {
+                    await this.copyCommentLink(message.commentId);
+                }
+                break;
+            case 'openExternalUrl':
+                if (message.url && /^https?:\/\//i.test(message.url)) {
+                    await vscode.env.openExternal(vscode.Uri.parse(message.url));
                 }
                 break;
             case 'changeSort':
@@ -2952,15 +3610,16 @@ export class StepikWebview implements vscode.Disposable {
         const courseDir = safeName(courseName);
         const lessonDir = safeName(lessonTitle);
 
-        // Solutions always live in `~/.stepik`, even when another folder (or no
-        // folder at all) is open in VS Code. The folder is created on demand.
+        // Solutions live in the active account folder under `~/stepik`, even
+        // when another folder (or no folder at all) is open in VS Code.
         let solutionRoot: string;
         try {
-            solutionRoot = path.resolve(ensureStepikRoot());
+            solutionRoot = path.resolve(getActiveSolutionRoot());
+            fs.mkdirSync(solutionRoot, { recursive: true });
         } catch (error) {
             const detail = error instanceof Error ? error.message : String(error);
             vscode.window.showErrorMessage(
-                `Не удалось создать папку решений ~/.stepik: ${detail}`
+                `Не удалось создать папку решений ${getActiveSolutionRoot()}: ${detail}`
             );
             return;
         }
@@ -3154,6 +3813,7 @@ export class StepikWebview implements vscode.Disposable {
     ${examBanner}
     
     <div class="task-type">${this.escapeHtml(getStepTypeTitle(stepType))}</div>
+    ${this.getProgressHtml()}
     
     ${taskContent}
     ${videoSection}
@@ -3166,6 +3826,9 @@ export class StepikWebview implements vscode.Disposable {
     <script nonce="${nonce}">
         const vscode = acquireVsCodeApi();
         ${this.getScript(stepType, step)}
+    </script>
+    <script nonce="${nonce}">
+        ${getRichCommentEditorScript()}
     </script>
     <script nonce="${nonce}">
         ${this.getCommentsScript()}
@@ -3767,9 +4430,8 @@ export class StepikWebview implements vscode.Disposable {
                 </div>
                 <div class="discussion-panel" id="comments-panel" role="tabpanel">
                     <div class="comment-composer" id="comment-composer">
-                        ${this.getComposerToolbarHtml()}
-                        <textarea id="new-comment-text" rows="3" placeholder="Написать комментарий…"></textarea>
-                        <div class="composer-hint">Поддерживается Markdown: **жирный**, *курсив*, <code>код</code>, [ссылка](url), списки, цитаты и формулы.</div>
+                        <div id="new-comment-editor" class="comment-rich-host" data-stepik-rich-editor data-placeholder="Написать комментарий…"></div>
+                        <div class="composer-hint">Предпросмотр работает по умолчанию; режим Markdown доступен на панели редактора. Поддерживаются формулы, изображения и блоки кода.</div>
                         <div class="composer-actions">
                             <button id="post-comment-btn" disabled>Отправить</button>
                             <span id="composer-status" class="composer-status"></span>
@@ -3798,9 +4460,8 @@ export class StepikWebview implements vscode.Disposable {
                                     </select>
                                 </label>
                                 ${this.getSolutionSubmissionHintHtml()}
-                                ${this.getComposerToolbarHtml()}
-                                <textarea id="new-solution-text" rows="3" placeholder="Написать решение…" disabled></textarea>
-                                <div class="composer-hint">Поддерживается Markdown: **жирный**, *курсив*, <code>код</code>, [ссылка](url), списки, цитаты и формулы.</div>
+                                <div id="new-solution-editor" class="comment-rich-host" data-stepik-rich-editor data-placeholder="Написать решение…" data-disabled data-compact></div>
+                                <div class="composer-hint">Предпросмотр работает по умолчанию; режим Markdown доступен на панели редактора. Поддерживаются формулы, изображения и блоки кода.</div>
                                 <div class="composer-actions">
                                     <button id="post-solution-btn" disabled>Отправить</button>
                                     <span id="solution-composer-status" class="composer-status"></span>
@@ -3945,6 +4606,23 @@ export class StepikWebview implements vscode.Disposable {
         )}:${pad(date.getMinutes())}`;
     }
 
+    private renderCommentBodyHtml(comment: StepikComment): string {
+        if (comment.is_deleted) {
+            return '<em class="comment-deleted">Комментарий удалён</em>';
+        }
+        if (comment.is_banned) {
+            return '<em class="comment-deleted">Комментарий скрыт</em>';
+        }
+        const submission = comment.submission
+            ? this.commentSubmissions.get(comment.submission)
+            : undefined;
+        const codeLanguage = submission?.reply?.language || this.getStepCodeLanguage();
+        return highlightCodeBlocks(
+            this.renderMathInHtml(this.sanitizeCommentHtml(comment.text || '')),
+            codeLanguage
+        );
+    }
+
     private getCommentHtml(comment: StepikComment, user: CommentUser | undefined): string {
         const authorName = user?.full_name?.trim() || `Пользователь #${comment.user}`;
         const roleBadge = this.getCommentRoleBadge(comment.user_role);
@@ -3988,15 +4666,7 @@ export class StepikWebview implements vscode.Disposable {
             : undefined;
         const codeLanguage = submission?.reply?.language || this.getStepCodeLanguage();
 
-        let body: string;
-        if (comment.is_deleted) {
-            body = '<em class="comment-deleted">Комментарий удалён</em>';
-        } else if (comment.is_banned) {
-            body = '<em class="comment-deleted">Комментарий скрыт</em>';
-        } else {
-            const sanitized = this.sanitizeCommentHtml(comment.text || '');
-            body = highlightCodeBlocks(this.renderMathInHtml(sanitized), codeLanguage);
-        }
+        const body = this.renderCommentBodyHtml(comment);
 
         const canReply = !comment.is_deleted && !comment.is_banned;
         const repliesButton = comment.parent === null && comment.reply_count > 0
@@ -4006,21 +4676,53 @@ export class StepikWebview implements vscode.Disposable {
         const replyButton = canReply
             ? `<button type="button" class="reply-btn" data-comment-id="${comment.id}" data-parent-id="${replyTarget}">Ответить</button>`
             : '';
+        const isMine = this.currentUserId !== undefined && comment.user === this.currentUserId;
+        const canModify =
+            canReply &&
+            comment.can_edit !== false &&
+            (comment.can_edit === true || isMine);
+        const canDelete =
+            canReply &&
+            comment.can_delete !== false &&
+            (comment.can_delete === true || isMine);
+        const editButton = canModify
+            ? `<button type="button" class="comment-action-btn edit-comment-btn" data-comment-id="${comment.id}">Изменить</button>`
+            : '';
+        const deleteButton = canDelete
+            ? `<button type="button" class="comment-action-btn delete-comment-btn" data-comment-id="${comment.id}">Удалить</button>`
+            : '';
+        const copyLinkButton = canReply
+            ? `<button type="button" class="comment-action-btn copy-comment-link-btn" data-comment-id="${comment.id}" data-parent-id="${comment.parent ?? ''}">Ссылка</button>`
+            : '';
 
         const voteId = this.commentVoteIds.get(comment.id);
         const currentVote = this.commentVoteValues.get(comment.id) ?? null;
+        // Stepik rejects votes on one's own comments with HTTP 403. Keep the
+        // counts visible but render them as plain text so the user is not
+        // invited to perform an action the server will refuse.
         const canVote = Boolean(voteId) &&
             canReply &&
+            !isMine &&
             comment.actions?.vote !== false;
         const epicCount = Math.max(0, Number(comment.epic_count) || 0);
         const abuseCount = Math.max(0, Number(comment.abuse_count) || 0);
+        const showVoteStats = canReply && (canVote || isMine || epicCount > 0 || abuseCount > 0);
+        // Same 20x20 thumbs-up symbol Stepik uses for both vote buttons; the
+        // dislike icon is flipped with CSS exactly like the site does it.
+        const voteThumbIcon =
+            '<span class="ui-like__icon" aria-hidden="true"><svg viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path d="M20 9.503c0 .415 0 1.276-.555 1.605.124.272.12.623.114.991l-.001.235c0 .773-.321 1.37-.825 1.617.126.276.123.634.12 1.01l-.001.292c.004.457-.156.885-.45 1.203a1.54 1.54 0 01-.376.298c.255.385.265.95.27 1.227.008.45-.151.877-.449 1.203-.3.327-.717.517-1.145.517l-3.743-.002h-.01c-.005.002-.01.002-.015.002H8.023a1.65 1.65 0 00-.132.006 2.077 2.077 0 01-.178.008.858.858 0 01-.254-.034 1.483 1.483 0 01-.404-.22h-.001l-.084-.057c-.179-.119-.353-.245-.527-.37l-.141-.103a.535.535 0 00-.313-.1h-.49V9.984l.538-.362c.258-.173.42-.473.591-.789l.775-1.4C7.93 6.483 8.46 5.53 8.99 4.58l.022-.041a.22.22 0 00.015-.033c.003-.012.003-.052.003-.076l-.003-3.08c0-.399.312-.715.618-.973A1.53 1.53 0 0111.222.11c.435.169.98.467 1.096.932.144.57.288 1.141.422 1.715l.057.236c.086.359.175.73.212 1.11.053.549-.467 2.777-.775 3.774l6.388-.011c.836 0 1.378.643 1.378 1.637zm-20 .976c0-.74.589-1.342 1.313-1.342h2.873c.288 0 .552.099.768.26v10.346a1.28 1.28 0 01-.768.257H1.313C.589 20 0 19.399 0 18.659v-8.18z" fill="currentColor" fill-rule="evenodd"></path></svg></span>';
         const voteControls = canVote
-            ? `<span class="comment-vote" data-comment-id="${comment.id}" data-current-vote="${currentVote || ''}" data-epic-count="${epicCount}" data-abuse-count="${abuseCount}">
-                    <button type="button" class="vote-btn vote-up${currentVote === 'epic' ? ' active' : ''}" data-comment-id="${comment.id}" data-vote="epic" aria-pressed="${currentVote === 'epic' ? 'true' : 'false'}" title="Полезный комментарий"><span class="vote-icon" aria-hidden="true">▲</span><span class="vote-count vote-up-count">${epicCount}</span></button>
-                    <button type="button" class="vote-btn vote-down${currentVote === 'abuse' ? ' active' : ''}" data-comment-id="${comment.id}" data-vote="abuse" aria-pressed="${currentVote === 'abuse' ? 'true' : 'false'}" title="Не полезный комментарий"><span class="vote-icon" aria-hidden="true">▼</span><span class="vote-count vote-down-count">${abuseCount}</span></button>
+            ? `<span class="comment-vote ui-vote" data-comment-id="${comment.id}" data-current-vote="${currentVote || ''}" data-epic-count="${epicCount}" data-abuse-count="${abuseCount}">
+                    <button type="button" class="ui-like ui-vote__like vote-btn vote-up${currentVote === 'epic' ? ' active' : ''}" data-comment-id="${comment.id}" data-vote="epic" data-type="like"${currentVote === 'epic' ? ' data-is-active' : ''} aria-pressed="${currentVote === 'epic' ? 'true' : 'false'}" aria-label="Одобряю!" title="Одобряю!">${voteThumbIcon}<span class="ui-like__count vote-count vote-up-count">${epicCount}</span></button>
+                    <button type="button" class="ui-like ui-vote__like vote-btn vote-down${currentVote === 'abuse' ? ' active' : ''}" data-comment-id="${comment.id}" data-vote="abuse" data-type="dislike"${currentVote === 'abuse' ? ' data-is-active' : ''} aria-pressed="${currentVote === 'abuse' ? 'true' : 'false'}" aria-label="Не нравится" title="Не нравится">${voteThumbIcon}<span class="ui-like__count vote-count vote-down-count">${abuseCount}</span></button>
                     <span class="vote-status" aria-live="polite"></span>
                 </span>`
-            : '';
+            : showVoteStats
+                ? `<span class="comment-vote comment-vote-static ui-vote" title="${isMine ? 'Нельзя голосовать за свой комментарий' : 'Голоса за комментарий'}">
+                    <span class="ui-like ui-vote__like" data-is-inactive data-type="like">${voteThumbIcon}<span class="ui-like__count vote-count vote-up-count">${epicCount}</span></span>
+                    <span class="ui-like ui-vote__like" data-is-inactive data-type="dislike">${voteThumbIcon}<span class="ui-like__count vote-count vote-down-count">${abuseCount}</span></span>
+                </span>`
+                : '';
 
         return `
             <div class="${classes.join(' ')}" data-comment-id="${comment.id}">
@@ -4036,11 +4738,18 @@ export class StepikWebview implements vscode.Disposable {
                         ${replyBadge}
                         <span class="comment-date">${this.escapeHtml(this.formatCommentDate(comment.time))}</span>
                     </div>
-                    <div class="comment-body">${body}${this.renderCommentSubmission(submission, codeLanguage)}</div>
+                    <div class="comment-body">
+                        <div class="comment-text">${body}</div>
+                        ${this.renderCommentSubmission(submission, codeLanguage)}
+                    </div>
                     <div class="comment-actions">
                         ${voteControls}
                         ${repliesButton}
                         ${replyButton}
+                        ${editButton}
+                        ${deleteButton}
+                        ${copyLinkButton}
+                        <span class="comment-action-status" aria-live="polite"></span>
                     </div>
                     <div class="reply-composer" id="reply-composer-${comment.id}" hidden></div>
                     <div class="comment-replies" id="replies-${comment.id}"></div>
@@ -4822,7 +5531,38 @@ export class StepikWebview implements vscode.Disposable {
      * the webview.
      */
     private sanitizeCommentHtml(html: string): string {
-        return this.sanitizeHtml(html, false);
+        // Stepik stores strikethrough as <strike>. Browsers and Turndown emit
+        // <s>/<del>, which Stepik silently drops, so normalize before sending.
+        const normalized = (html || '')
+            .replace(/<\s*(?:s|del)\b([^>]*)>/gi, '<strike$1>')
+            .replace(/<\s*\/\s*(?:s|del)\s*>/gi, '</strike>');
+        return this.sanitizeHtml(normalized, false);
+    }
+
+    private normalizeCommentHtml(html: string): string {
+        return (html || '')
+            .replace(/<\s*(?:s|del)\b([^>]*)>/gi, '<strike$1>')
+            .replace(/<\s*\/\s*(?:s|del)\s*>/gi, '</strike>');
+    }
+
+    /** Convert rich editor HTML back to Markdown for the Markdown tab. */
+    private commentHtmlToMarkdown(html: string): string {
+        const sanitized = this.sanitizeCommentHtml(html);
+        if (!sanitized.trim()) {
+            return '';
+        }
+        try {
+            return this.commentTurndown
+                .turndown(sanitized)
+                .replace(/\n{3,}/g, '\n\n')
+                .trim();
+        } catch (error) {
+            const detail = error instanceof Error ? error.message : String(error);
+            this.outputChannel.appendLine(
+                `[Comments] Не удалось преобразовать HTML в Markdown: ${detail}`
+            );
+            throw new Error(`Не удалось преобразовать HTML в Markdown: ${detail}`);
+        }
     }
 
     private sanitizeHtml(html: string, isStep: boolean): string {
@@ -4910,7 +5650,7 @@ export class StepikWebview implements vscode.Disposable {
 
         // Strip any remaining tags that are not in the allowlist.
         const allowedTags =
-            'a|abbr|b|blockquote|br|caption|code|col|colgroup|dd|del|details|div|dl|dt|em|h[1-6]|hr|i|img|kbd|li|mark|ol|p|pre|q|s|small|span|strong|sub|summary|sup|table|tbody|td|tfoot|th|thead|tr|u|ul';
+            'a|abbr|b|blockquote|br|caption|code|col|colgroup|dd|del|details|div|dl|dt|em|h[1-6]|hr|i|img|kbd|li|mark|ol|p|pre|q|s|small|span|strike|strong|sub|summary|sup|table|tbody|td|tfoot|th|thead|tr|u|ul';
         clean = clean.replace(
             new RegExp(`<\\/?(?!(?:${allowedTags})\\b)[a-z][a-z0-9-]*\\b[^>]*>`, 'gi'),
             ''
@@ -4949,6 +5689,9 @@ export class StepikWebview implements vscode.Disposable {
             return this.stylesCache;
         }
         this.stylesCache = `
+        [hidden] {
+            display: none !important;
+        }
         body {
             font-family: var(--vscode-font-family);
             padding: 20px;
@@ -5032,6 +5775,170 @@ export class StepikWebview implements vscode.Disposable {
             border-radius: 4px;
             font-size: 12px;
             margin-bottom: 16px;
+        }
+        .progress-panel {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 8px;
+            margin: -4px 0 18px;
+        }
+        .progress-panel-error {
+            display: block;
+            width: fit-content;
+            margin-left: auto;
+            padding: 6px 10px;
+            border: 1px solid var(--vscode-inputValidation-errorBorder, var(--vscode-panel-border));
+            border-radius: 6px;
+            color: var(--vscode-errorForeground, var(--vscode-foreground));
+            font-size: 12px;
+        }
+        .progress-streak {
+            position: relative;
+            display: inline-flex;
+            flex: 0 0 auto;
+            align-items: center;
+            gap: 4px;
+            height: 36px;
+            padding: 8px;
+            box-sizing: border-box;
+            border-radius: 4px;
+            background: #333;
+            color: #fff;
+            cursor: default;
+            outline: none;
+        }
+        .progress-streak:focus-visible {
+            outline: 1px solid var(--vscode-focusBorder);
+            outline-offset: 4px;
+        }
+        .progress-streak-icon {
+            display: block;
+            flex: none;
+            width: 20px;
+            height: 20px;
+        }
+        .progress-streak-count {
+            color: rgba(255, 255, 255, 0.75);
+            font-size: 16px;
+            font-weight: 400;
+            line-height: 18px;
+            letter-spacing: 0.3px;
+            font-variant-numeric: tabular-nums;
+        }
+        .progress-course {
+            position: relative;
+            display: inline-flex;
+            flex-direction: column;
+            align-items: stretch;
+            min-width: 214px;
+            color: var(--vscode-foreground);
+            font-size: 14px;
+            line-height: 22.4px;
+            cursor: default;
+            outline: none;
+        }
+        .progress-course-row {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+        }
+        .progress-course-score {
+            font-variant-numeric: tabular-nums;
+        }
+        .progress-line {
+            display: flex;
+            align-items: center;
+            height: 15px;
+            padding: 0 4px;
+            box-sizing: border-box;
+        }
+        .progress-line-track {
+            position: relative;
+            width: 100%;
+            height: 4px;
+            border-radius: 2px;
+            background: #939393;
+        }
+        .progress-line-fill {
+            position: absolute;
+            top: 0;
+            left: 0;
+            height: 100%;
+            border-radius: 2px;
+            background: #66cc66;
+        }
+        .progress-line-marker {
+            position: absolute;
+            top: 50%;
+            width: 13.5px;
+            height: 13.5px;
+            box-sizing: border-box;
+            border: 3.5px solid var(--vscode-editor-background);
+            border-radius: 50%;
+            background: #939393;
+            transform: translate(-50%, -50%);
+        }
+        .progress-course:focus-visible {
+            outline: 1px solid var(--vscode-focusBorder);
+            outline-offset: 4px;
+            border-radius: 2px;
+        }
+        .progress-tooltip {
+            position: absolute;
+            top: calc(100% + 10px);
+            right: 0;
+            z-index: 20;
+            min-width: 250px;
+            max-width: 330px;
+            padding: 10px 12px;
+            box-sizing: border-box;
+            border-radius: 4px;
+            background: #222;
+            color: #a8a8a8;
+            font-size: 12px;
+            font-weight: 400;
+            line-height: 1.6;
+            letter-spacing: 0.4px;
+            box-shadow: 0 2px 7px rgba(0, 0, 0, 0.4);
+            opacity: 0;
+            visibility: hidden;
+            pointer-events: none;
+            transition: opacity 0.15s ease, visibility 0.15s ease;
+        }
+        .progress-tooltip::before {
+            content: '';
+            position: absolute;
+            top: -7px;
+            right: 16px;
+            border-width: 0 8px 8px;
+            border-style: solid;
+            border-color: transparent transparent #222 transparent;
+        }
+        .progress-tooltip-streak {
+            right: auto;
+            left: 0;
+        }
+        .progress-tooltip-streak::before {
+            right: auto;
+            left: 16px;
+        }
+        .progress-tooltip-title {
+            color: #fff;
+            font-weight: 600;
+        }
+        .progress-tooltip-line + .progress-tooltip-line {
+            margin-top: 2px;
+        }
+        .progress-tooltip-line span {
+            color: #fff;
+        }
+        .progress-course:hover .progress-tooltip,
+        .progress-course:focus-visible .progress-tooltip,
+        .progress-streak:hover .progress-tooltip,
+        .progress-streak:focus-visible .progress-tooltip {
+            opacity: 1;
+            visibility: visible;
         }
         .task-content {
             margin-bottom: 24px;
@@ -5674,6 +6581,317 @@ export class StepikWebview implements vscode.Disposable {
             font-size: 11px;
             opacity: 0.7;
         }
+        .stepik-rich-editor {
+            overflow: hidden;
+            border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
+            border-radius: 4px;
+            background: var(--vscode-input-background);
+        }
+        .stepik-rich-editor.disabled {
+            opacity: 0.65;
+        }
+        .rich-editor-toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 3px;
+            padding: 5px;
+            border-bottom: 1px solid var(--vscode-panel-border);
+            background: var(--vscode-editorWidget-background, var(--vscode-sideBar-background));
+        }
+        .rich-tool,
+        .rich-mode {
+            min-height: 26px;
+            padding: 0 7px;
+            border: 1px solid var(--vscode-button-border, var(--vscode-panel-border));
+            border-radius: 3px;
+            background: var(--vscode-button-secondaryBackground, transparent);
+            color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+            font-family: inherit;
+            font-size: 12px;
+            line-height: 1;
+            cursor: pointer;
+        }
+        .rich-tool:hover:not(:disabled),
+        .rich-mode:hover:not(:disabled) {
+            background: var(--vscode-button-secondaryHoverBackground, var(--vscode-toolbar-hoverBackground));
+        }
+        .rich-tool:focus-visible,
+        .rich-mode:focus-visible {
+            outline: 1px solid var(--vscode-focusBorder);
+            outline-offset: 1px;
+        }
+        .rich-tool:disabled,
+        .rich-mode:disabled {
+            cursor: default;
+            opacity: 0.55;
+        }
+        .rich-toolbar-sep {
+            width: 1px;
+            height: 18px;
+            margin: 0 2px;
+            background: var(--vscode-panel-border);
+        }
+        .rich-editor-modes {
+            display: inline-flex;
+            margin-left: auto;
+            border: 1px solid var(--vscode-button-border, var(--vscode-panel-border));
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        .rich-editor-modes .rich-mode {
+            border: none;
+            border-radius: 0;
+        }
+        .rich-editor-modes .rich-mode.active {
+            background: var(--vscode-button-background);
+            color: var(--vscode-button-foreground);
+        }
+        .rich-editor-surface {
+            position: relative;
+        }
+        .rich-editor-content {
+            min-height: 92px;
+            max-height: 420px;
+            padding: 10px 12px;
+            overflow: auto;
+            outline: none;
+            font-size: 13px;
+            line-height: 1.5;
+            white-space: pre-wrap;
+            overflow-wrap: anywhere;
+        }
+        .stepik-rich-editor.compact .rich-editor-content {
+            min-height: 64px;
+        }
+        .rich-editor-content:empty::before {
+            content: attr(data-placeholder);
+            color: var(--vscode-input-placeholderForeground);
+            pointer-events: none;
+        }
+        .rich-editor-content p {
+            margin: 0 0 8px;
+        }
+        .rich-editor-content p:last-child {
+            margin-bottom: 0;
+        }
+        .rich-editor-content pre {
+            margin: 8px 0;
+            padding: 8px 10px;
+            overflow-x: auto;
+            border-radius: 4px;
+            background: var(--vscode-textCodeBlock-background);
+            white-space: pre;
+        }
+        .rich-editor-content code {
+            padding: 1px 3px;
+            border-radius: 3px;
+            background: var(--vscode-textCodeBlock-background);
+            font-family: var(--vscode-editor-font-family, monospace);
+        }
+        .rich-editor-content pre code {
+            padding: 0;
+            background: transparent;
+        }
+        .rich-editor-content img {
+            max-width: 100%;
+            height: auto;
+        }
+        .rich-editor-content blockquote {
+            margin: 6px 0;
+            padding: 2px 0 2px 10px;
+            border-left: 3px solid var(--vscode-textBlockQuote-border, var(--vscode-panel-border));
+            color: var(--vscode-textBlockQuote-foreground, inherit);
+        }
+        .rich-editor-content a {
+            color: var(--vscode-textLink-foreground);
+        }
+        .rich-editor-content ul,
+        .rich-editor-content ol {
+            margin: 6px 0;
+            padding-left: 24px;
+        }
+        .rich-editor-markdown {
+            display: block;
+            width: 100%;
+            box-sizing: border-box;
+            min-height: 110px;
+            max-height: 420px;
+            padding: 10px 12px;
+            resize: vertical;
+            border: none;
+            outline: none;
+            background: var(--vscode-input-background);
+            color: var(--vscode-input-foreground);
+            font-family: var(--vscode-editor-font-family, monospace);
+            font-size: 13px;
+            line-height: 1.5;
+        }
+        .rich-editor-drop-hint {
+            display: none;
+            position: absolute;
+            inset: 0;
+            align-items: center;
+            justify-content: center;
+            border: 2px dashed var(--vscode-focusBorder);
+            border-radius: 4px;
+            background: var(--vscode-editorWidget-background);
+            color: var(--vscode-descriptionForeground);
+            font-size: 12px;
+            pointer-events: none;
+        }
+        .stepik-rich-editor.dragging .rich-editor-drop-hint {
+            display: flex;
+        }
+        .rich-editor-status {
+            padding: 0 10px;
+            color: var(--vscode-descriptionForeground);
+            font-size: 11px;
+        }
+        .rich-editor-status:not(:empty) {
+            padding: 5px 10px;
+            border-top: 1px solid var(--vscode-panel-border);
+        }
+        .rich-dialog-backdrop {
+            position: fixed;
+            inset: 0;
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            background: rgba(0, 0, 0, 0.45);
+        }
+        .rich-dialog {
+            display: flex;
+            flex-direction: column;
+            width: min(560px, 100%);
+            max-height: 90vh;
+            overflow: auto;
+            border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
+            border-radius: 6px;
+            background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+            color: var(--vscode-editorWidget-foreground, var(--vscode-foreground));
+            box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+        }
+        .rich-dialog-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 10px 14px;
+            border-bottom: 1px solid var(--vscode-panel-border);
+        }
+        .rich-dialog-title {
+            font-weight: 600;
+            font-size: 13px;
+        }
+        .rich-dialog-close {
+            padding: 0 4px;
+            border: none;
+            background: transparent;
+            color: inherit;
+            font-size: 18px;
+            line-height: 1;
+            cursor: pointer;
+        }
+        .rich-dialog-body {
+            padding: 14px;
+        }
+        .rich-field {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            margin-bottom: 10px;
+            font-size: 12px;
+        }
+        .rich-field input,
+        .rich-field select,
+        .rich-field textarea {
+            width: 100%;
+            box-sizing: border-box;
+            padding: 6px 8px;
+            border: 1px solid var(--vscode-input-border, var(--vscode-panel-border));
+            border-radius: 3px;
+            background: var(--vscode-input-background);
+            color: var(--vscode-input-foreground);
+            font-family: inherit;
+            font-size: 13px;
+        }
+        .rich-field textarea {
+            resize: vertical;
+            font-family: var(--vscode-editor-font-family, monospace);
+        }
+        .rich-checkbox {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-bottom: 10px;
+            font-size: 12px;
+        }
+        .rich-dialog-hint {
+            margin-top: 4px;
+            color: var(--vscode-descriptionForeground);
+            font-size: 11px;
+        }
+        .rich-dialog-hint a {
+            color: var(--vscode-textLink-foreground);
+        }
+        .rich-dialog-preview {
+            min-height: 36px;
+            margin: 8px 0;
+            padding: 8px 10px;
+            overflow-x: auto;
+            border: 1px dashed var(--vscode-panel-border);
+            border-radius: 4px;
+            font-size: 13px;
+        }
+        .rich-dialog-error {
+            min-height: 16px;
+            padding: 0 14px;
+            color: var(--vscode-errorForeground);
+            font-size: 12px;
+        }
+        .rich-dialog-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 8px;
+            padding: 10px 14px 14px;
+        }
+        .comment-text {
+            display: block;
+        }
+        .comment-action-btn {
+            padding: 2px 0;
+            border: none;
+            background: transparent;
+            color: var(--vscode-textLink-foreground);
+            font-family: inherit;
+            font-size: 12px;
+            cursor: pointer;
+        }
+        .comment-action-btn:hover:not(:disabled) {
+            text-decoration: underline;
+        }
+        .comment-action-btn:disabled {
+            opacity: 0.5;
+            cursor: default;
+        }
+        .comment-action-status {
+            color: var(--vscode-descriptionForeground);
+            font-size: 11px;
+        }
+        .comment-edit-actions {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 8px;
+            margin-top: 6px;
+        }
+        .comment-edit-status {
+            color: var(--vscode-descriptionForeground);
+            font-size: 11px;
+        }
         .solution-submission-label {
             display: flex;
             align-items: center;
@@ -5700,46 +6918,76 @@ export class StepikWebview implements vscode.Disposable {
             margin-top: 6px;
         }
         .comment-vote {
-            display: inline-flex;
-            align-items: center;
-            gap: 2px;
-            margin-right: 2px;
+            display: inline-block;
+            margin: 0 4px 0 0;
+            white-space: nowrap;
+            font-size: 14px;
+            line-height: 22px;
+            font-variant-numeric: tabular-nums;
+            vertical-align: middle;
         }
-        .vote-btn {
-            display: inline-flex;
-            align-items: center;
-            gap: 4px;
-            padding: 1px 7px;
-            border: 1px solid transparent;
-            border-radius: 10px;
+        .comment-vote .ui-like {
+            display: inline-block;
+            margin: 0;
+            padding: 0;
+            border: 0;
+            border-radius: 1px;
             background: transparent;
-            color: var(--vscode-descriptionForeground, var(--vscode-foreground));
+            color: var(--vscode-descriptionForeground, #999);
             font-family: inherit;
-            font-size: 12px;
-            line-height: 18px;
+            font-size: inherit;
+            line-height: inherit;
             cursor: pointer;
+            --ui-like-icon-color: var(--vscode-descriptionForeground, #999);
+            --ui-like-count-color: var(--vscode-descriptionForeground, #777);
         }
-        .vote-btn:not(:disabled):hover {
-            background: var(--vscode-toolbar-hoverBackground, rgba(128, 128, 128, 0.18));
+        .comment-vote .ui-vote__like + .ui-vote__like {
+            margin-left: 16px;
         }
-        .vote-btn.active {
-            border-color: var(--vscode-textLink-foreground);
-            background: var(--vscode-inputValidation-infoBackground, rgba(0, 120, 212, 0.12));
-            color: var(--vscode-textLink-foreground);
+        .comment-vote .ui-like:not([data-is-inactive]):hover,
+        .comment-vote .ui-like[data-is-active] {
+            --ui-like-icon-color: var(--vscode-foreground, #ccc);
+            --ui-like-count-color: var(--vscode-foreground, #ccc);
         }
-        .vote-btn:disabled {
+        .comment-vote .ui-like:not([data-is-inactive]):hover {
+            background: transparent;
+        }
+        .comment-vote .ui-like[data-is-inactive] {
             cursor: default;
-            opacity: 0.65;
         }
-        .vote-icon {
-            font-size: 10px;
-            line-height: 1;
+        .comment-vote .ui-like__icon {
+            position: relative;
+            top: 0.2em;
+            display: inline-block;
+            width: 1.25em;
+            height: 1.25em;
+            margin-right: 2px;
+            color: var(--ui-like-icon-color, #999);
+            vertical-align: baseline;
+            transition: color 0.3s;
+        }
+        .comment-vote .ui-like__icon svg {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+        .comment-vote .ui-like[data-type="dislike"] .ui-like__icon {
+            top: 0.35em;
+            transform: rotate(180deg);
+        }
+        .comment-vote .ui-like__count {
+            color: var(--ui-like-count-color, #777);
+            transition: color 0.3s;
+        }
+        .comment-vote .ui-like:focus-visible {
+            outline: 1px solid var(--vscode-focusBorder);
+            outline-offset: 2px;
+        }
+        .comment-vote-static .ui-like__icon {
+            opacity: 0.85;
         }
         .vote-count {
             font-variant-numeric: tabular-nums;
-        }
-        .comment-vote[data-pending="1"] .vote-btn {
-            opacity: 0.6;
         }
         .vote-status {
             margin-left: 4px;
@@ -7150,10 +8398,10 @@ export class StepikWebview implements vscode.Disposable {
                 const statusEl = document.getElementById('comments-status');
                 const countEl = document.getElementById('comments-count');
                 const sortSelect = document.getElementById('comment-sort');
-                const commentInput = document.getElementById('new-comment-text');
+                const commentEditorHost = document.getElementById('new-comment-editor');
                 const postCommentBtn = document.getElementById('post-comment-btn');
                 const composerStatus = document.getElementById('composer-status');
-                const solutionInput = document.getElementById('new-solution-text');
+                const solutionEditorHost = document.getElementById('new-solution-editor');
                 const postSolutionBtn = document.getElementById('post-solution-btn');
                 const solutionComposerStatus = document.getElementById('solution-composer-status');
                 const solutionSubmissionSelect = document.getElementById('solution-submission');
@@ -7172,7 +8420,21 @@ export class StepikWebview implements vscode.Disposable {
                 const recheckSolutionsBtn = document.getElementById('recheck-solutions');
                 const loadMoreSolutionsBtn = document.getElementById('load-more-solutions');
                 const retrySolutionsBtn = document.getElementById('retry-solutions');
-                const composerToolbarHtml = ${JSON.stringify(this.getComposerToolbarHtml())};
+                const richEditorApi = window.StepikRichEditor;
+                const commentEditor = richEditorApi && commentEditorHost
+                    ? richEditorApi.create(commentEditorHost, {
+                        placeholder: 'Написать комментарий…',
+                        onChange: function () { updatePostButton(); }
+                    })
+                    : null;
+                const solutionEditor = richEditorApi && solutionEditorHost
+                    ? richEditorApi.create(solutionEditorHost, {
+                        placeholder: 'Написать решение…',
+                        compact: true,
+                        disabled: true,
+                        onChange: function () { updateSolutionPostButton(); }
+                    })
+                    : null;
 
                 let currentView = 'comments';
                 let commentSort = '${this.commentSort}';
@@ -7184,6 +8446,8 @@ export class StepikWebview implements vscode.Disposable {
                 let solutionsLoaded = false;
                 let solutionsLoading = false;
                 let solutionsHasMore = false;
+                let solutionComposerEnabled = false;
+                const editSnapshots = new Map();
 
                 function setStatus(text) {
                     if (statusEl) {
@@ -7220,11 +8484,12 @@ export class StepikWebview implements vscode.Disposable {
                 }
 
                 function updateSolutionPostButton() {
-                    if (solutionInput && postSolutionBtn) {
+                    if (postSolutionBtn) {
                         postSolutionBtn.disabled =
-                            solutionInput.disabled ||
+                            !solutionComposerEnabled ||
                             !hasSolutionSubmission() ||
-                            solutionInput.value.trim().length === 0;
+                            !solutionEditor ||
+                            solutionEditor.isEmpty();
                     }
                 }
 
@@ -7378,13 +8643,14 @@ export class StepikWebview implements vscode.Disposable {
                 });
 
                 function setSolutionComposerEnabled(enabled) {
+                    solutionComposerEnabled = Boolean(enabled);
                     if (solutionSubmissionSelect) {
                         solutionSubmissionSelect.disabled =
                             !enabled || !hasSolutionSubmission();
                     }
                     const canWrite = Boolean(enabled && hasSolutionSubmission());
-                    if (solutionInput) {
-                        solutionInput.disabled = !canWrite;
+                    if (solutionEditor) {
+                        solutionEditor.setDisabled(!canWrite);
                     }
                     updateSolutionPostButton();
                 }
@@ -7535,30 +8801,35 @@ export class StepikWebview implements vscode.Disposable {
                 }
 
                 function updatePostButton() {
-                    if (commentInput && postCommentBtn) {
-                        postCommentBtn.disabled = commentInput.value.trim().length === 0;
+                    if (postCommentBtn) {
+                        postCommentBtn.disabled =
+                            !commentEditor || commentEditor.isEmpty();
                     }
                 }
 
                 function submitComment() {
-                    if (!commentInput || !postCommentBtn || postCommentBtn.disabled) {
+                    if (!commentEditor || !postCommentBtn || postCommentBtn.disabled) {
                         return;
                     }
-                    const text = commentInput.value.trim();
-                    if (!text) {
+                    const payload = commentEditor.getPayload();
+                    if (!payload.text) {
                         return;
                     }
                     postCommentBtn.disabled = true;
                     setComposerStatus('Отправка…');
-                    vscode.postMessage({ command: 'postComment', text: text });
+                    vscode.postMessage({
+                        command: 'postComment',
+                        text: payload.text,
+                        format: payload.format
+                    });
                 }
 
                 function submitSolutionComment() {
-                    if (!solutionInput || !postSolutionBtn || postSolutionBtn.disabled) {
+                    if (!solutionEditor || !postSolutionBtn || postSolutionBtn.disabled) {
                         return;
                     }
-                    const text = solutionInput.value.trim();
-                    if (!text) {
+                    const payload = solutionEditor.getPayload();
+                    if (!payload.text) {
                         return;
                     }
                     const submissionId = getSelectedSubmissionId();
@@ -7573,17 +8844,26 @@ export class StepikWebview implements vscode.Disposable {
                     setSolutionComposerStatus('Отправка…');
                     vscode.postMessage({
                         command: 'postComment',
-                        text: text,
+                        text: payload.text,
+                        format: payload.format,
                         thread: 'solutions',
                         submissionId: submissionId
                     });
                 }
 
+                function getReplyEditor(composer) {
+                    if (!composer || !richEditorApi) {
+                        return null;
+                    }
+                    const host = composer.querySelector('[data-stepik-rich-editor]');
+                    return host ? richEditorApi.get(host.id) || null : null;
+                }
+
                 function updateReplyButton(composer) {
-                    const textarea = composer.querySelector('textarea');
+                    const editor = getReplyEditor(composer);
                     const button = composer.querySelector('.post-reply-btn');
-                    if (textarea && button) {
-                        button.disabled = textarea.value.trim().length === 0;
+                    if (button) {
+                        button.disabled = !editor || editor.isEmpty();
                     }
                 }
 
@@ -7591,9 +8871,9 @@ export class StepikWebview implements vscode.Disposable {
                     if (!composer) {
                         return;
                     }
-                    const textarea = composer.querySelector('textarea');
-                    if (textarea) {
-                        textarea.value = '';
+                    const editor = getReplyEditor(composer);
+                    if (editor) {
+                        editor.clear();
                     }
                     const status = composer.querySelector('.composer-status');
                     if (status) {
@@ -7618,29 +8898,30 @@ export class StepikWebview implements vscode.Disposable {
                         return;
                     }
 
-                    if (!composer.querySelector('textarea')) {
+                    if (!composer.querySelector('[data-stepik-rich-editor]')) {
                         composer.innerHTML =
-                            composerToolbarHtml +
-                            '<textarea rows="2" placeholder="Написать ответ…"></textarea>' +
-                            '<div class="composer-hint">Поддерживается Markdown: **жирный**, *курсив*, <code>код</code>, [ссылка](url), списки, цитаты и формулы.</div>' +
+                            '<div class="comment-rich-host" id="reply-editor-' + commentId + '" data-stepik-rich-editor data-placeholder="Написать ответ…" data-compact></div>' +
+                            '<div class="composer-hint">Формулы, изображения и блоки кода доступны на панели редактора.</div>' +
                             '<div class="composer-actions">' +
                             '<button class="post-reply-btn" data-parent-id="' + parentId + '" disabled>Отправить ответ</button>' +
                             '<button class="cancel-reply-btn secondary" type="button">Отмена</button>' +
                             '<span class="composer-status"></span>' +
                             '</div>';
 
-                        const textarea = composer.querySelector('textarea');
-                        if (textarea) {
-                            textarea.addEventListener('input', function () {
-                                updateReplyButton(composer);
-                            });
-                            textarea.addEventListener('keydown', function (event) {
-                                if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
-                                    event.preventDefault();
-                                    submitReply(composer);
-                                }
-                            });
+                        const host = composer.querySelector('[data-stepik-rich-editor]');
+                        if (host && richEditorApi) {
+                            richEditorApi.get(host.id) ||
+                                richEditorApi.create(host, {
+                                    placeholder: 'Написать ответ…',
+                                    compact: true,
+                                    onChange: function () {
+                                        updateReplyButton(composer);
+                                    }
+                                });
                         }
+                        composer.addEventListener('rich-editor-submit', function () {
+                            submitReply(composer);
+                        });
                     } else {
                         const button = composer.querySelector('.post-reply-btn');
                         if (button) {
@@ -7650,20 +8931,21 @@ export class StepikWebview implements vscode.Disposable {
 
                     composer.hidden = false;
                     composer.setAttribute('data-open', '1');
-                    const input = composer.querySelector('textarea');
-                    if (input) {
-                        input.focus();
+                    updateReplyButton(composer);
+                    const editor = getReplyEditor(composer);
+                    if (editor) {
+                        editor.focus();
                     }
                 }
 
                 function submitReply(composer) {
-                    const textarea = composer.querySelector('textarea');
+                    const editor = getReplyEditor(composer);
                     const button = composer.querySelector('.post-reply-btn');
-                    if (!textarea || !button || button.disabled) {
+                    if (!editor || !button || button.disabled) {
                         return;
                     }
-                    const text = textarea.value.trim();
-                    if (!text) {
+                    const payload = editor.getPayload();
+                    if (!payload.text) {
                         return;
                     }
                     const parentId = Number(button.getAttribute('data-parent-id'));
@@ -7677,7 +8959,8 @@ export class StepikWebview implements vscode.Disposable {
                     }
                     vscode.postMessage({
                         command: 'postComment',
-                        text: text,
+                        text: payload.text,
+                        format: payload.format,
                         parentId: parentId
                     });
                 }
@@ -7695,6 +8978,107 @@ export class StepikWebview implements vscode.Disposable {
                             status.textContent = message || '';
                         }
                     }
+                }
+
+                function getCommentElement(commentId) {
+                    return document.querySelector(
+                        '.comment[data-comment-id="' + commentId + '"]'
+                    );
+                }
+
+                function setCommentActionStatus(comment, text) {
+                    if (!comment) {
+                        return;
+                    }
+                    const status = comment.querySelector(
+                        '.comment-actions .comment-action-status'
+                    );
+                    if (status) {
+                        status.textContent = text || '';
+                    }
+                }
+
+                function updateEditSaveButton(hostId) {
+                    const editor = richEditorApi ? richEditorApi.get(hostId) : null;
+                    const host = document.getElementById(hostId);
+                    const save = host
+                        ? host.parentElement.querySelector('.save-comment-edit')
+                        : null;
+                    if (save) {
+                        save.disabled = !editor || editor.isEmpty();
+                    }
+                }
+
+                function startCommentEdit(button) {
+                    if (!richEditorApi) {
+                        return;
+                    }
+                    const commentId = Number(button.getAttribute('data-comment-id'));
+                    const comment = getCommentElement(commentId);
+                    const textEl = comment && comment.querySelector('.comment-text');
+                    if (!comment || !textEl) {
+                        return;
+                    }
+                    if (textEl.querySelector('[data-stepik-rich-editor]')) {
+                        return;
+                    }
+
+                    button.disabled = true;
+                    setCommentActionStatus(comment, 'Загрузка…');
+                    richEditorApi
+                        .request('loadCommentEditor', { commentId: commentId })
+                        .then(function (data) {
+                            editSnapshots.set(commentId, textEl.innerHTML);
+                            textEl.innerHTML =
+                                '<div class="comment-edit-host" id="comment-edit-host-' +
+                                commentId +
+                                '" data-stepik-rich-editor data-compact data-placeholder="Текст комментария…"></div>' +
+                                '<div class="comment-edit-actions">' +
+                                '<button type="button" class="save-comment-edit" data-comment-id="' +
+                                commentId +
+                                '">Сохранить</button>' +
+                                '<button type="button" class="cancel-comment-edit secondary" data-comment-id="' +
+                                commentId +
+                                '">Отмена</button>' +
+                                '<span class="comment-edit-status"></span>' +
+                                '</div>';
+                            const host = document.getElementById(
+                                'comment-edit-host-' + commentId
+                            );
+                            const editor = richEditorApi.create(host, {
+                                compact: true,
+                                placeholder: 'Текст комментария…',
+                                onChange: function () {
+                                    updateEditSaveButton(host.id);
+                                }
+                            });
+                            editor.setHtml(data.html || '');
+                            updateEditSaveButton(host.id);
+                            editor.focus();
+                            setCommentActionStatus(comment, '');
+                            button.disabled = false;
+                        })
+                        .catch(function (error) {
+                            button.disabled = false;
+                            setCommentActionStatus(
+                                comment,
+                                error.message || 'Не удалось открыть редактор'
+                            );
+                        });
+                }
+
+                function cancelCommentEdit(commentId) {
+                    const comment = getCommentElement(commentId);
+                    const textEl = comment && comment.querySelector('.comment-text');
+                    if (!textEl) {
+                        return;
+                    }
+                    const snapshot = editSnapshots.get(commentId);
+                    if (typeof snapshot === 'string') {
+                        textEl.innerHTML = snapshot;
+                    }
+                    editSnapshots.delete(commentId);
+                    setCommentActionStatus(comment, '');
                 }
 
                 function markTeacherReplied(commentId) {
@@ -7732,10 +9116,20 @@ export class StepikWebview implements vscode.Disposable {
                     const downCount = wrapper.querySelector('.vote-down-count');
                     if (up) {
                         up.classList.toggle('active', current === 'epic');
+                        if (current === 'epic') {
+                            up.setAttribute('data-is-active', '');
+                        } else {
+                            up.removeAttribute('data-is-active');
+                        }
                         up.setAttribute('aria-pressed', current === 'epic' ? 'true' : 'false');
                     }
                     if (down) {
                         down.classList.toggle('active', current === 'abuse');
+                        if (current === 'abuse') {
+                            down.setAttribute('data-is-active', '');
+                        } else {
+                            down.removeAttribute('data-is-active');
+                        }
                         down.setAttribute('aria-pressed', current === 'abuse' ? 'true' : 'false');
                     }
                     if (upCount) {
@@ -7885,13 +9279,9 @@ export class StepikWebview implements vscode.Disposable {
                     });
                 }
 
-                if (commentInput) {
-                    commentInput.addEventListener('input', updatePostButton);
-                    commentInput.addEventListener('keydown', function (event) {
-                        if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
-                            event.preventDefault();
-                            submitComment();
-                        }
+                if (commentEditorHost) {
+                    commentEditorHost.addEventListener('rich-editor-submit', function () {
+                        submitComment();
                     });
                 }
 
@@ -7902,13 +9292,9 @@ export class StepikWebview implements vscode.Disposable {
                 }
                 updatePostButton();
 
-                if (solutionInput) {
-                    solutionInput.addEventListener('input', updateSolutionPostButton);
-                    solutionInput.addEventListener('keydown', function (event) {
-                        if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
-                            event.preventDefault();
-                            submitSolutionComment();
-                        }
+                if (solutionEditorHost) {
+                    solutionEditorHost.addEventListener('rich-editor-submit', function () {
+                        submitSolutionComment();
                     });
                 }
 
@@ -7966,6 +9352,90 @@ export class StepikWebview implements vscode.Disposable {
                 document.addEventListener('click', function (event) {
                     const target = event.target;
                     if (!target || !target.closest) {
+                        return;
+                    }
+
+                    const externalLink = target.closest('a[href]');
+                    if (
+                        externalLink &&
+                        !externalLink.closest('[contenteditable="true"]') &&
+                        !externalLink.closest('.rich-dialog') &&
+                        !externalLink.hasAttribute('data-external')
+                    ) {
+                        event.preventDefault();
+                        vscode.postMessage({
+                            command: 'openExternalUrl',
+                            url: externalLink.href
+                        });
+                        return;
+                    }
+
+                    const editBtn = target.closest('.edit-comment-btn');
+                    if (editBtn) {
+                        event.preventDefault();
+                        startCommentEdit(editBtn);
+                        return;
+                    }
+
+                    const saveEditBtn = target.closest('.save-comment-edit');
+                    if (saveEditBtn) {
+                        event.preventDefault();
+                        const commentId = Number(
+                            saveEditBtn.getAttribute('data-comment-id')
+                        );
+                        const editor = richEditorApi
+                            ? richEditorApi.get('comment-edit-host-' + commentId)
+                            : null;
+                        if (!editor || editor.isEmpty()) {
+                            return;
+                        }
+                        const payload = editor.getPayload();
+                        saveEditBtn.disabled = true;
+                        const comment = getCommentElement(commentId);
+                        const status = comment && comment.querySelector('.comment-edit-status');
+                        if (status) {
+                            status.textContent = 'Сохранение…';
+                        }
+                        vscode.postMessage({
+                            command: 'updateComment',
+                            commentId: commentId,
+                            text: payload.text,
+                            format: payload.format
+                        });
+                        return;
+                    }
+
+                    const cancelEditBtn = target.closest('.cancel-comment-edit');
+                    if (cancelEditBtn) {
+                        event.preventDefault();
+                        cancelCommentEdit(
+                            Number(cancelEditBtn.getAttribute('data-comment-id'))
+                        );
+                        return;
+                    }
+
+                    const deleteBtn = target.closest('.delete-comment-btn');
+                    if (deleteBtn) {
+                        event.preventDefault();
+                        const commentId = Number(deleteBtn.getAttribute('data-comment-id'));
+                        const comment = getCommentElement(commentId);
+                        deleteBtn.disabled = true;
+                        setCommentActionStatus(comment, 'Подтвердите удаление…');
+                        vscode.postMessage({ command: 'deleteComment', commentId: commentId });
+                        return;
+                    }
+
+                    const copyLinkBtn = target.closest('.copy-comment-link-btn');
+                    if (copyLinkBtn) {
+                        event.preventDefault();
+                        const commentId = Number(
+                            copyLinkBtn.getAttribute('data-comment-id')
+                        );
+                        copyLinkBtn.disabled = true;
+                        vscode.postMessage({
+                            command: 'copyCommentLink',
+                            commentId: commentId
+                        });
                         return;
                     }
 
@@ -8247,6 +9717,69 @@ export class StepikWebview implements vscode.Disposable {
                             message.abuseCount,
                             message.message || 'Не удалось изменить оценку'
                         );
+                    } else if (message.command === 'commentUpdated') {
+                        const commentId = Number(message.commentId);
+                        const comment = getCommentElement(commentId);
+                        const textEl = comment && comment.querySelector('.comment-text');
+                        if (textEl) {
+                            textEl.innerHTML = message.bodyHtml || '';
+                        }
+                        editSnapshots.delete(commentId);
+                        setCommentActionStatus(comment, 'Сохранено');
+                        setTimeout(function () {
+                            setCommentActionStatus(comment, '');
+                        }, 2500);
+                    } else if (message.command === 'commentDeleted') {
+                        const comment = getCommentElement(Number(message.commentId));
+                        if (comment) {
+                            comment.remove();
+                        }
+                        editSnapshots.delete(Number(message.commentId));
+                        if (countEl && currentView === 'comments') {
+                            const current = Number(countEl.textContent) || 0;
+                            countEl.textContent = String(Math.max(0, current - 1));
+                        }
+                    } else if (message.command === 'commentLinkCopied') {
+                        const buttons = document.querySelectorAll(
+                            '.copy-comment-link-btn[data-comment-id="' +
+                                Number(message.commentId) +
+                                '"]'
+                        );
+                        for (const button of buttons) {
+                            button.disabled = false;
+                            button.textContent = 'Скопировано';
+                            setTimeout(function () {
+                                button.textContent = 'Ссылка';
+                            }, 2000);
+                        }
+                    } else if (message.command === 'commentActionCancelled') {
+                        const comment = getCommentElement(Number(message.commentId));
+                        const button = comment && comment.querySelector('.delete-comment-btn');
+                        if (button) {
+                            button.disabled = false;
+                        }
+                        setCommentActionStatus(comment, '');
+                    } else if (message.command === 'commentActionError') {
+                        const comment = getCommentElement(Number(message.commentId));
+                        if (comment) {
+                            const edit = comment.querySelector('.edit-comment-btn');
+                            const remove = comment.querySelector('.delete-comment-btn');
+                            const copy = comment.querySelector('.copy-comment-link-btn');
+                            if (edit) {
+                                edit.disabled = false;
+                            }
+                            if (remove) {
+                                remove.disabled = false;
+                            }
+                            if (copy) {
+                                copy.disabled = false;
+                            }
+                            const editStatus = comment.querySelector('.comment-edit-status');
+                            if (editStatus) {
+                                editStatus.textContent = message.message || '';
+                            }
+                        }
+                        setCommentActionStatus(comment, message.message || 'Ошибка');
                     } else if (message.command === 'commentsError') {
                         commentsLoading = false;
                         autoLoadPausedUntil = Date.now() + 15000;
@@ -8258,8 +9791,8 @@ export class StepikWebview implements vscode.Disposable {
                         }
                     } else if (message.command === 'commentPosted') {
                         if (message.thread === 'solutions') {
-                            if (solutionInput) {
-                                solutionInput.value = '';
+                            if (solutionEditor) {
+                                solutionEditor.clear();
                             }
                             updateSolutionPostButton();
                             setSolutionComposerStatus('Решение отправлено');
@@ -8274,8 +9807,8 @@ export class StepikWebview implements vscode.Disposable {
                             return;
                         }
 
-                        if (commentInput) {
-                            commentInput.value = '';
+                        if (commentEditor) {
+                            commentEditor.clear();
                         }
                         updatePostButton();
                         setComposerStatus('Комментарий отправлен');
