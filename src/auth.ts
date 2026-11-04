@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { t } from './i18n';
 
 const CLIENT_ID_KEY = 'stepik.clientId';
 const CLIENT_SECRET_KEY = 'stepik.clientSecret';
@@ -20,8 +21,8 @@ export class StepikAuth {
 
     async login(): Promise<boolean> {
         const clientId = await vscode.window.showInputBox({
-            prompt: 'Введите Client ID приложения Stepik',
-            placeHolder: 'Client ID из https://stepik.org/oauth2/applications/',
+            prompt: t('auth.clientIdPrompt'),
+            placeHolder: t('auth.clientIdPlaceholder'),
             ignoreFocusOut: true
         });
 
@@ -30,8 +31,8 @@ export class StepikAuth {
         }
 
         const clientSecret = await vscode.window.showInputBox({
-            prompt: 'Введите Client Secret приложения Stepik',
-            placeHolder: 'Client Secret',
+            prompt: t('auth.clientSecretPrompt'),
+            placeHolder: t('auth.clientSecretPlaceholder'),
             password: true,
             ignoreFocusOut: true
         });
@@ -47,10 +48,10 @@ export class StepikAuth {
             await this.secretStorage.store(CLIENT_SECRET_KEY, clientSecret);
             await this.storeToken(token);
 
-            vscode.window.showInformationMessage('Вход в Stepik выполнен.');
+            vscode.window.showInformationMessage(t('auth.success'));
             return true;
         } catch (error) {
-            vscode.window.showErrorMessage(`Не удалось войти в Stepik: ${error}`);
+            vscode.window.showErrorMessage(t('auth.error', { detail: String(error) }));
             return false;
         }
     }
@@ -73,7 +74,7 @@ export class StepikAuth {
 
         const data = await response.json() as TokenResponse;
         if (!data.access_token) {
-            throw new Error('Stepik не вернул access_token.');
+            throw new Error(t('auth.missingToken'));
         }
         return data;
     }
@@ -95,7 +96,7 @@ export class StepikAuth {
         await this.secretStorage.delete(CLIENT_SECRET_KEY);
         await this.secretStorage.delete(ACCESS_TOKEN_KEY);
         await this.secretStorage.delete(ACCESS_TOKEN_EXPIRES_AT_KEY);
-        vscode.window.showInformationMessage('Вы вышли из Stepik.');
+        vscode.window.showInformationMessage(t('auth.loggedOut'));
     }
 
     async isLoggedIn(): Promise<boolean> {

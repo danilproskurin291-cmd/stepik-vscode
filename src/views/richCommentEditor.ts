@@ -24,6 +24,14 @@ export function getRichCommentEditorScript(): string {
     var editors = new Map();
     var requestCounter = 0;
     var pendingRequests = new Map();
+    var i18n = window.StepikI18n;
+
+    function t(key, params) {
+        if (i18n && typeof i18n.t === 'function') {
+            return i18n.t(key, params);
+        }
+        return key;
+    }
 
     function escapeHtml(value) {
         return String(value == null ? '' : value)
@@ -47,34 +55,34 @@ export function getRichCommentEditorScript(): string {
     }
 
     function buildMarkup(options) {
-        var placeholder = escapeAttribute(options.placeholder || 'Напишите комментарий…');
+        var placeholder = escapeAttribute(options.placeholder || t('editor.placeholder'));
         return '' +
-            '<div class="rich-editor-toolbar" role="toolbar" aria-label="Форматирование комментария">' +
-                '<button type="button" class="rich-tool" data-command="bold" title="Жирный (Ctrl+B)"><strong>B</strong></button>' +
-                '<button type="button" class="rich-tool" data-command="italic" title="Курсив (Ctrl+I)"><em>I</em></button>' +
-                '<button type="button" class="rich-tool" data-command="underline" title="Подчёркнутый (Ctrl+U)"><u>U</u></button>' +
-                '<button type="button" class="rich-tool" data-command="strikeThrough" title="Зачёркнутый"><s>S</s></button>' +
-                '<button type="button" class="rich-tool" data-action="inline-code" title="Встроенный код">&lt;/&gt;</button>' +
-                '<button type="button" class="rich-tool" data-command="superscript" title="Верхний индекс">x²</button>' +
-                '<button type="button" class="rich-tool" data-command="subscript" title="Нижний индекс">x₂</button>' +
+            '<div class="rich-editor-toolbar" role="toolbar" aria-label="' + escapeAttribute(t('editor.formatting')) + '">' +
+                '<button type="button" class="rich-tool" data-command="bold" title="' + escapeAttribute(t('editor.bold')) + '"><strong>B</strong></button>' +
+                '<button type="button" class="rich-tool" data-command="italic" title="' + escapeAttribute(t('editor.italic')) + '"><em>I</em></button>' +
+                '<button type="button" class="rich-tool" data-command="underline" title="' + escapeAttribute(t('editor.underline')) + '"><u>U</u></button>' +
+                '<button type="button" class="rich-tool" data-command="strikeThrough" title="' + escapeAttribute(t('editor.strike')) + '"><s>S</s></button>' +
+                '<button type="button" class="rich-tool" data-action="inline-code" title="' + escapeAttribute(t('editor.inlineCode')) + '">&lt;/&gt;</button>' +
+                '<button type="button" class="rich-tool" data-command="superscript" title="' + escapeAttribute(t('editor.superscript')) + '">x²</button>' +
+                '<button type="button" class="rich-tool" data-command="subscript" title="' + escapeAttribute(t('editor.subscript')) + '">x₂</button>' +
                 '<span class="rich-toolbar-sep" aria-hidden="true"></span>' +
-                '<button type="button" class="rich-tool" data-command="formatBlock:blockquote" title="Цитата">❝</button>' +
-                '<button type="button" class="rich-tool" data-command="insertUnorderedList" title="Маркированный список">• Список</button>' +
-                '<button type="button" class="rich-tool" data-command="insertOrderedList" title="Нумерованный список">1. Список</button>' +
+                '<button type="button" class="rich-tool" data-command="formatBlock:blockquote" title="' + escapeAttribute(t('editor.quote')) + '">❝</button>' +
+                '<button type="button" class="rich-tool" data-command="insertUnorderedList" title="' + escapeAttribute(t('editor.bulletList')) + '">' + t('editor.bulletButton') + '</button>' +
+                '<button type="button" class="rich-tool" data-command="insertOrderedList" title="' + escapeAttribute(t('editor.numberedList')) + '">' + t('editor.numberedButton') + '</button>' +
                 '<span class="rich-toolbar-sep" aria-hidden="true"></span>' +
-                '<button type="button" class="rich-tool" data-action="codeblock" title="Блок кода с выбором языка">Код</button>' +
-                '<button type="button" class="rich-tool" data-action="math" title="Формула LaTeX">Σ Формула</button>' +
-                '<button type="button" class="rich-tool" data-action="image" title="Вставить изображение">🖼 Изображение</button>' +
-                '<button type="button" class="rich-tool" data-action="link" title="Вставить ссылку (Ctrl+K)">🔗 Ссылка</button>' +
-                '<span class="rich-editor-modes" role="group" aria-label="Режим редактирования">' +
-                    '<button type="button" class="rich-mode active" data-mode="rich" title="Визуальный режим с форматированием">Предпросмотр</button>' +
-                    '<button type="button" class="rich-mode" data-mode="markdown" title="Редактировать исходный Markdown">Markdown</button>' +
+                '<button type="button" class="rich-tool" data-action="codeblock" title="' + escapeAttribute(t('editor.codeBlock')) + '">' + t('editor.codeButton') + '</button>' +
+                '<button type="button" class="rich-tool" data-action="math" title="' + escapeAttribute(t('editor.math')) + '">' + t('editor.mathButton') + '</button>' +
+                '<button type="button" class="rich-tool" data-action="image" title="' + escapeAttribute(t('editor.image')) + '">' + t('editor.imageButton') + '</button>' +
+                '<button type="button" class="rich-tool" data-action="link" title="' + escapeAttribute(t('editor.link')) + '">' + t('editor.linkButton') + '</button>' +
+                '<span class="rich-editor-modes" role="group" aria-label="' + escapeAttribute(t('editor.modeGroup')) + '">' +
+                    '<button type="button" class="rich-mode active" data-mode="rich" title="' + escapeAttribute(t('editor.previewTitle')) + '">' + t('editor.preview') + '</button>' +
+                    '<button type="button" class="rich-mode" data-mode="markdown" title="' + escapeAttribute(t('editor.markdownTitle')) + '">Markdown</button>' +
                 '</span>' +
             '</div>' +
             '<div class="rich-editor-surface">' +
                 '<div class="rich-editor-content" contenteditable="true" role="textbox" aria-multiline="true" data-placeholder="' + placeholder + '"></div>' +
                 '<textarea class="rich-editor-markdown" spellcheck="true" placeholder="Markdown…" hidden></textarea>' +
-                '<div class="rich-editor-drop-hint">Отпустите изображение, чтобы вставить его</div>' +
+                '<div class="rich-editor-drop-hint">' + t('editor.dropHint') + '</div>' +
             '</div>' +
             '<input type="file" class="rich-editor-file" accept="image/*" hidden>' +
             '<div class="rich-editor-status" aria-live="polite"></div>';
@@ -85,7 +93,7 @@ export function getRichCommentEditorScript(): string {
             var requestId = 'editor-' + (++requestCounter) + '-' + Date.now();
             var timer = setTimeout(function () {
                 pendingRequests.delete(requestId);
-                reject(new Error('Истекло время ожидания ответа редактора.'));
+                reject(new Error(t('editor.timeout')));
             }, 25000);
             pendingRequests.set(requestId, {
                 resolve: function (value) {
@@ -118,7 +126,7 @@ export function getRichCommentEditorScript(): string {
         if (message.ok) {
             pending.resolve(message.data || {});
         } else {
-            pending.reject(new Error(message.error || 'Ошибка редактора.'));
+            pending.reject(new Error(message.error || t('editor.error')));
         }
     });
 
@@ -132,12 +140,12 @@ export function getRichCommentEditorScript(): string {
         dialog.innerHTML =
             '<div class="rich-dialog-head">' +
                 '<span class="rich-dialog-title">' + escapeHtml(title) + '</span>' +
-                '<button type="button" class="rich-dialog-close" aria-label="Закрыть">×</button>' +
+                '<button type="button" class="rich-dialog-close" aria-label="' + escapeAttribute(t('editor.close')) + '">×</button>' +
             '</div>' +
             '<div class="rich-dialog-body">' + bodyHtml + '</div>' +
             '<div class="rich-dialog-error" aria-live="polite"></div>' +
             '<div class="rich-dialog-actions">' +
-                '<button type="button" class="rich-dialog-cancel secondary">Отмена</button>' +
+                '<button type="button" class="rich-dialog-cancel secondary">' + t('editor.cancel') + '</button>' +
                 '<button type="button" class="rich-dialog-primary">' + escapeHtml(primaryLabel) + '</button>' +
             '</div>';
         backdrop.appendChild(dialog);
@@ -293,7 +301,7 @@ export function getRichCommentEditorScript(): string {
         }
 
         function insertInlineCode() {
-            var text = selectedText() || 'код';
+            var text = selectedText() || t('editor.codeWord');
             var selection = window.getSelection();
             if (selection && selection.rangeCount > 0 && selectionInsideRich()) {
                 var range = selection.getRangeAt(0);
@@ -322,7 +330,7 @@ export function getRichCommentEditorScript(): string {
             try {
                 document.execCommand(name, false, value);
             } catch (error) {
-                setStatus('Команда форматирования недоступна.');
+                setStatus(t('editor.formatUnavailable'));
                 return;
             }
             saveSelection();
@@ -333,16 +341,16 @@ export function getRichCommentEditorScript(): string {
             saveSelection();
             var selected = selectedText();
             var dialog = openDialog(
-                'Вставить ссылку',
-                '<label class="rich-field">Адрес ссылки' +
+                t('editor.linkDialogTitle'),
+                '<label class="rich-field">' + t('editor.linkUrlLabel') +
                     '<input type="text" class="rich-dialog-url" placeholder="https://example.com" value="">' +
                 '</label>' +
-                '<label class="rich-field">Отображаемый текст' +
-                    '<input type="text" class="rich-dialog-text" placeholder="Текст ссылки" value="' +
+                '<label class="rich-field">' + t('editor.linkTextLabel') +
+                    '<input type="text" class="rich-dialog-text" placeholder="' + escapeAttribute(t('editor.linkTextPlaceholder')) + '" value="' +
                         escapeAttribute(selected) + '">' +
                 '</label>' +
-                '<div class="rich-dialog-hint">Если оставить текст пустым, будет показан сам адрес.</div>',
-                'Вставить'
+                '<div class="rich-dialog-hint">' + t('editor.linkEmptyHint') + '</div>',
+                t('editor.insert')
             );
             var urlInput = dialog.body.querySelector('.rich-dialog-url');
             var textInput = dialog.body.querySelector('.rich-dialog-text');
@@ -356,12 +364,12 @@ export function getRichCommentEditorScript(): string {
             dialog.primary.addEventListener('click', function () {
                 var url = normalizeUrl(urlInput.value);
                 if (!url) {
-                    dialog.setError('Введите адрес ссылки.');
+                    dialog.setError(t('editor.linkUrlRequired'));
                     urlInput.focus();
                     return;
                 }
                 if (!/^(https?:|mailto:|#)/i.test(url)) {
-                    dialog.setError('Поддерживаются ссылки http(s), mailto и якоря.');
+                    dialog.setError(t('editor.linkScheme'));
                     return;
                 }
                 var label = textInput.value.trim() || url;
@@ -376,18 +384,18 @@ export function getRichCommentEditorScript(): string {
             saveSelection();
             var selected = selectedText();
             var dialog = openDialog(
-                'Блок кода',
-                '<label class="rich-field">Язык программирования' +
+                t('editor.codeDialogTitle'),
+                '<label class="rich-field">' + t('editor.codeLanguageLabel') +
                     '<select class="rich-dialog-language">' +
                         buildLanguageOptions('plaintext') +
                     '</select>' +
                 '</label>' +
-                '<label class="rich-field">Код' +
-                    '<textarea class="rich-dialog-code" rows="9" spellcheck="false" placeholder="Вставьте код…">' +
+                '<label class="rich-field">' + t('editor.codeLabel') +
+                    '<textarea class="rich-dialog-code" rows="9" spellcheck="false" placeholder="' + escapeAttribute(t('editor.codePlaceholder')) + '">' +
                         escapeHtml(selected) +
                     '</textarea>' +
                 '</label>',
-                'Вставить код'
+                t('editor.insertCode')
             );
             var codeInput = dialog.body.querySelector('.rich-dialog-code');
             var languageInput = dialog.body.querySelector('.rich-dialog-language');
@@ -395,7 +403,7 @@ export function getRichCommentEditorScript(): string {
             dialog.primary.addEventListener('click', function () {
                 var code = codeInput.value.replace(/\r\n/g, '\n');
                 if (!code.trim()) {
-                    dialog.setError('Введите код.');
+                    dialog.setError(t('editor.codeRequired'));
                     codeInput.focus();
                     return;
                 }
@@ -414,18 +422,18 @@ export function getRichCommentEditorScript(): string {
             saveSelection();
             var selected = selectedText();
             var dialog = openDialog(
-                'Формула LaTeX',
-                '<label class="rich-field">Формула' +
+                t('editor.mathDialogTitle'),
+                '<label class="rich-field">' + t('editor.mathFormulaLabel') +
                     '<textarea class="rich-dialog-math" rows="3" spellcheck="false" placeholder="x^2 + y^2 = z^2">' +
                         escapeHtml(selected) +
                     '</textarea>' +
                 '</label>' +
-                '<label class="rich-checkbox"><input type="checkbox" class="rich-dialog-display"> Отдельная строка</label>' +
+                '<label class="rich-checkbox"><input type="checkbox" class="rich-dialog-display"> ' + t('editor.mathDisplay') + '</label>' +
                 '<div class="rich-dialog-preview" aria-live="polite"></div>' +
-                '<div class="rich-dialog-hint">Поддерживается синтаксис LaTeX. ' +
-                    '<a href="http://en.wikibooks.org/wiki/LaTeX/Mathematics" data-external="true">Шпаргалка по математике</a>' +
+                '<div class="rich-dialog-hint">' + t('editor.mathHint') +
+                    '<a href="http://en.wikibooks.org/wiki/LaTeX/Mathematics" data-external="true">' + t('editor.mathCheatSheet') + '</a>' +
                 '</div>',
-                'Вставить формулу'
+                t('editor.insertFormula')
             );
             var mathInput = dialog.body.querySelector('.rich-dialog-math');
             var displayInput = dialog.body.querySelector('.rich-dialog-display');
@@ -440,7 +448,7 @@ export function getRichCommentEditorScript(): string {
                     preview.innerHTML = '';
                     return;
                 }
-                preview.textContent = 'Предпросмотр…';
+                preview.textContent = t('editor.previewing');
                 request('renderMathPreview', {
                     formula: formula,
                     display: displayInput.checked
@@ -468,7 +476,7 @@ export function getRichCommentEditorScript(): string {
             dialog.primary.addEventListener('click', function () {
                 var formula = mathInput.value.trim();
                 if (!formula) {
-                    dialog.setError('Введите формулу.');
+                    dialog.setError(t('editor.formulaRequired'));
                     mathInput.focus();
                     return;
                 }
@@ -500,16 +508,16 @@ export function getRichCommentEditorScript(): string {
                 return;
             }
             if (!/^image\//i.test(file.type || '')) {
-                setStatus('Можно вставлять только изображения.');
+                setStatus(t('editor.imagesOnly'));
                 return;
             }
             if (file.size > 15 * 1024 * 1024) {
-                setStatus('Изображение больше 15 МБ.');
+                setStatus(t('task.imageTooLarge'));
                 return;
             }
 
             uploading = true;
-            setStatus('Загрузка изображения…');
+            setStatus(t('editor.uploadingImage'));
             file.arrayBuffer().then(function (buffer) {
                 return request('uploadCommentImage', {
                     name: file.name || 'image.png',
@@ -529,7 +537,7 @@ export function getRichCommentEditorScript(): string {
                 );
             }).catch(function (error) {
                 uploading = false;
-                setStatus(error.message || 'Не удалось загрузить изображение.');
+                setStatus(error.message || t('editor.imageUploadFailed'));
             });
         }
 
@@ -552,7 +560,7 @@ export function getRichCommentEditorScript(): string {
             converting = true;
             updateToolbarState();
             if (nextMode === 'markdown') {
-                setStatus('Преобразование в Markdown…');
+                setStatus(t('editor.convertingToMarkdown'));
                 request('commentEditorToMarkdown', { html: rich.innerHTML })
                     .then(function (data) {
                         converting = false;
@@ -570,13 +578,13 @@ export function getRichCommentEditorScript(): string {
                     })
                     .catch(function (error) {
                         converting = false;
-                        setStatus(error.message || 'Не удалось переключить режим.');
+                        setStatus(error.message || t('editor.switchModeFailed'));
                         updateToolbarState();
                     });
                 return;
             }
 
-            setStatus('Преобразование из Markdown…');
+            setStatus(t('editor.convertingFromMarkdown'));
             request('commentEditorToHtml', { markdown: markdownInput.value })
                 .then(function (data) {
                     converting = false;
@@ -594,7 +602,7 @@ export function getRichCommentEditorScript(): string {
                 })
                 .catch(function (error) {
                     converting = false;
-                    setStatus(error.message || 'Не удалось переключить режим.');
+                    setStatus(error.message || t('editor.switchModeFailed'));
                     updateToolbarState();
                 });
         }

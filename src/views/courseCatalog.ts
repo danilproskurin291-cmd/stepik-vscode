@@ -2,6 +2,8 @@ import * as vscode from 'vscode';
 import * as crypto from 'crypto';
 import { Course, StepikApi } from '../api/stepikApi';
 import { StepikTreeProvider } from '../providers/treeProvider';
+import { getLanguage, pluralize, t, webviewStrings } from '../i18n';
+import { stepikBrandHtml, stepikThemeCss } from './theme';
 
 type CatalogMode = 'recommended' | 'all' | 'my';
 
@@ -72,7 +74,7 @@ export class CourseCatalogView implements vscode.Disposable {
 
         const panel = vscode.window.createWebviewPanel(
             'stepikCourseCatalog',
-            'Stepik: курсы',
+            t('catalog.panelTitle'),
             vscode.ViewColumn.Active,
             {
                 enableScripts: true,
@@ -104,6 +106,15 @@ export class CourseCatalogView implements vscode.Disposable {
         this.panel = undefined;
         this.userCoursesPromise = undefined;
         this.courseListPromise = undefined;
+    }
+
+    /** Re-render the panel after the interface language changed. */
+    refreshLocalization(): void {
+        if (!this.panel) {
+            return;
+        }
+        this.panel.title = t('catalog.panelTitle');
+        this.panel.webview.html = this.getHtml(this.panel.webview);
     }
 
     dispose(): void {
@@ -162,9 +173,9 @@ export class CourseCatalogView implements vscode.Disposable {
             // Enrollment badges are decorative; a failure here must not hide
             // the public catalog.
             this.log(
-                `Не удалось загрузить курсы пользователя: ${
-                    error instanceof Error ? error.message : String(error)
-                }`
+                t('catalog.userCoursesLogError', {
+                    detail: error instanceof Error ? error.message : String(error)
+                })
             );
             return new Set<number>();
         }
@@ -178,9 +189,10 @@ export class CourseCatalogView implements vscode.Disposable {
             // If the personal list is unavailable, do not let a paid course
             // skip the purchase flow.
             this.log(
-                `Не удалось проверить запись на курс ${courseId}: ${
-                    error instanceof Error ? error.message : String(error)
-                }`
+                t('catalog.enrolledCheckLogError', {
+                    id: courseId,
+                    detail: error instanceof Error ? error.message : String(error)
+                })
             );
             return false;
         }
@@ -261,7 +273,7 @@ export class CourseCatalogView implements vscode.Disposable {
                 const price =
                     course.display_price ||
                     (course.price ? String(course.price) : '') ||
-                    'Платный';
+                    t('catalog.paidFallback');
 
                 return {
                     id: course.id,
@@ -295,9 +307,9 @@ export class CourseCatalogView implements vscode.Disposable {
             });
         } catch (error) {
             const detail = error instanceof Error ? error.message : String(error);
-            this.log(`Не удалось загрузить каталог: ${detail}`);
-            const friendly = /not authenticated|login first|Сессия Stepik истекла/i.test(detail)
-                ? 'Войдите в Stepik командой «Stepik: Login», чтобы открыть каталог.'
+            this.log(t('catalog.loadLogError', { detail }));
+            const friendly = /not authenticated|login first|session has expired|Сессия Stepik истекла/i.test(detail)
+                ? t('catalog.loginRequired')
                 : detail;
             this.post({
                 command: 'error',
@@ -320,7 +332,7 @@ export class CourseCatalogView implements vscode.Disposable {
         try {
             const course = await this.api.getCourse(Number(courseId));
             if (!course) {
-                throw new Error('Курс не найден или недоступен.');
+                throw new Error(t('catalog.courseNotFound'));
             }
 
             // Paid courses must be bought on Stepik. Selecting one directly
@@ -332,17 +344,18 @@ export class CourseCatalogView implements vscode.Disposable {
 
             await this.finishSelection(
                 course,
-                `Курс «${course.title}» выбран. Если его нет в вашем профиле, запишитесь на него на Stepik.`
+                t('catalog.courseSelected', { title: course.title })
             );
         } catch (error) {
             const detail = error instanceof Error ? error.message : String(error);
-            this.log(`Не удалось выбрать курс ${courseId}: ${detail}`);
+            this.log(t('catalog.selectLogError', { id: Number(courseId), detail }));
+            const friendly = t('catalog.selectError', { detail });
             void this.panel?.webview.postMessage({
                 command: 'selectFailed',
                 courseId,
-                message: `Не удалось выбрать курс: ${detail}`
+                message: friendly
             });
-            vscode.window.showErrorMessage(`Не удалось выбрать курс: ${detail}`);
+            vscode.window.showErrorMessage(friendly);
         }
     }
 
@@ -355,7 +368,7 @@ export class CourseCatalogView implements vscode.Disposable {
         try {
             const course = await this.api.getCourse(Number(courseId));
             if (!course) {
-                throw new Error('Курс не найден или недоступен.');
+                throw new Error(t('catalog.courseNotFound'));
             }
 
             // Never enrol in a paid course locally, even if a crafted webview
@@ -376,26 +389,27 @@ export class CourseCatalogView implements vscode.Disposable {
             await this.finishSelection(
                 course,
                 enrolledNow
-                    ? `Вы записаны на курс «${course.title}». Курс выбран.`
-                    : `Курс «${course.title}» выбран.`
+                    ? t('catalog.enrolledSelected', { title: course.title })
+                    : t('catalog.selected', { title: course.title })
             );
         } catch (error) {
             const detail = error instanceof Error ? error.message : String(error);
             this.userCoursesPromise = undefined;
-            this.log(`Не удалось записаться на курс ${courseId}: ${detail}`);
+            this.log(t('catalog.enrollLogError', { id: Number(courseId), detail }));
+            const friendly = t('catalog.enrollError', { detail });
             void this.panel?.webview.postMessage({
                 command: 'enrollFailed',
                 courseId,
-                message: `Не удалось записаться на курс: ${detail}`
+                message: friendly
             });
-            vscode.window.showErrorMessage(`Не удалось записаться на курс: ${detail}`);
+            vscode.window.showErrorMessage(friendly);
         }
     }
 
     private async redirectToPaidCourse(course: Course): Promise<void> {
         await this.openExternal(`https://stepik.org/course/${course.id}`);
         vscode.window.showInformationMessage(
-            `Курс «${course.title}» платный. Покупка и запись доступны на stepik.org.`
+            t('catalog.paidInfo', { title: course.title })
         );
     }
 
@@ -446,13 +460,15 @@ export class CourseCatalogView implements vscode.Disposable {
 
     private getHtml(webview: vscode.Webview): string {
         const nonce = crypto.randomBytes(16).toString('hex');
+        const language = getLanguage();
+        const strings = JSON.stringify(webviewStrings(language)).replace(/</g, '\\u003c');
         return `<!DOCTYPE html>
-<html lang="ru">
+<html lang="${language}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src https: data: ${webview.cspSource}; style-src 'unsafe-inline'; script-src 'nonce-${nonce}'; font-src https: data:;">
-    <title>Stepik: курсы</title>
+    <title>${t('catalog.panelTitle')}</title>
     <style>
         * {
             box-sizing: border-box;
@@ -866,49 +882,76 @@ export class CourseCatalogView implements vscode.Disposable {
                 flex-direction: column;
             }
         }
+${stepikThemeCss}
     </style>
 </head>
-<body>
+<body data-view="catalog">
+    ${stepikBrandHtml()}
     <div class="catalog-shell">
         <header class="catalog-header">
             <div>
-                <h1>Выбор курса</h1>
-                <p class="catalog-subtitle">Рекомендации Stepik, популярные курсы и курсы, на которые вы записаны.</p>
+                <h1>${t('catalog.title')}</h1>
+                <p class="catalog-subtitle">${t('catalog.subtitle')}</p>
             </div>
-            <button type="button" id="refresh" class="icon-button" title="Обновить каталог">Обновить</button>
+            <button type="button" id="refresh" class="icon-button" title="${t('catalog.refreshTitle')}">${t('catalog.refresh')}</button>
         </header>
 
-        <nav class="tabs" role="tablist" aria-label="Источник курсов">
-            <button type="button" class="tab active" role="tab" aria-selected="true" data-mode="recommended">Рекомендованные</button>
-            <button type="button" class="tab" role="tab" aria-selected="false" data-mode="all">Популярные</button>
-            <button type="button" class="tab" role="tab" aria-selected="false" data-mode="my">Мои курсы</button>
+        <nav class="tabs" role="tablist" aria-label="${t('catalog.ariaSource')}">
+            <button type="button" class="tab active" role="tab" aria-selected="true" data-mode="recommended">${t('catalog.tabRecommended')}</button>
+            <button type="button" class="tab" role="tab" aria-selected="false" data-mode="all">${t('catalog.tabPopular')}</button>
+            <button type="button" class="tab" role="tab" aria-selected="false" data-mode="my">${t('catalog.tabMy')}</button>
         </nav>
 
         <div class="toolbar">
             <label class="search-field">
-                <input id="search" type="search" placeholder="Поиск по названию и описанию" aria-label="Поиск курсов">
+                <input id="search" type="search" placeholder="${t('catalog.searchPlaceholder')}" aria-label="${t('catalog.searchAria')}">
             </label>
             <label class="checkbox">
                 <input id="free-only" type="checkbox">
-                <span>Только бесплатные</span>
+                <span>${t('catalog.freeOnly')}</span>
             </label>
         </div>
 
-        <div id="status" class="status">Загружаем курсы…</div>
+        <div id="status" class="status">${t('catalog.loading')}</div>
         <div id="grid" class="grid"></div>
         <div id="loading-more" class="loading-more" hidden>
-            <span>Загружаем ещё 20 курсов…</span>
+            <span>${t('catalog.loadingMore')}</span>
         </div>
         <div id="scroll-sentinel" class="scroll-sentinel" aria-hidden="true"></div>
         <div class="footer">
             <span id="footer-note" class="footer-note"></span>
-            <button type="button" id="load-more" class="load-more" hidden>Загрузить ещё</button>
+            <button type="button" id="load-more" class="load-more" hidden>${t('catalog.loadMore')}</button>
         </div>
     </div>
 
     <script nonce="${nonce}">
         (function () {
             var vscode = acquireVsCodeApi();
+            var L = ${strings};
+
+            function t(key, params) {
+                var template = L[key] || key;
+                if (!params) {
+                    return template;
+                }
+                return template.replace(/\\{(\\w+)\\}/g, function (match, name) {
+                    return params[name] === undefined ? match : String(params[name]);
+                });
+            }
+
+            function plural(key, count) {
+                var forms = String(L[key] || '').split('|');
+                if (L.__lang === 'en') {
+                    return count === 1 ? (forms[0] || '') : (forms[2] || forms[1] || forms[0] || '');
+                }
+                var abs = Math.abs(count) % 100;
+                var last = abs % 10;
+                if (abs > 10 && abs < 20) { return forms[2] || forms[0] || ''; }
+                if (last > 1 && last < 5) { return forms[1] || forms[0] || ''; }
+                if (last === 1) { return forms[0] || ''; }
+                return forms[2] || forms[0] || '';
+            }
+
             var state = {
                 mode: 'recommended',
                 search: '',
@@ -969,24 +1012,9 @@ export class CourseCatalogView implements vscode.Disposable {
                 return cache[key];
             }
 
-            function plural(number, one, few, many) {
-                var abs = Math.abs(number) % 100;
-                var last = abs % 10;
-                if (abs > 10 && abs < 20) {
-                    return many;
-                }
-                if (last > 1 && last < 5) {
-                    return few;
-                }
-                if (last === 1) {
-                    return one;
-                }
-                return many;
-            }
-
             function formatNumber(value) {
                 try {
-                    return Number(value || 0).toLocaleString('ru-RU');
+                    return Number(value || 0).toLocaleString(L.__locale || undefined);
                 } catch (error) {
                     return String(value || 0);
                 }
@@ -1001,7 +1029,7 @@ export class CourseCatalogView implements vscode.Disposable {
                     return '';
                 }
                 try {
-                    return date.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' });
+                    return date.toLocaleDateString(L.__locale || undefined, { day: 'numeric', month: 'short', year: 'numeric' });
                 } catch (error) {
                     return '';
                 }
@@ -1061,12 +1089,12 @@ export class CourseCatalogView implements vscode.Disposable {
                 var badges = document.createElement('div');
                 badges.className = 'course-badges';
                 if (course.enrolled) {
-                    badges.appendChild(createBadge('Записан', 'enrolled'));
+                    badges.appendChild(createBadge(t('catalog.badgeEnrolled'), 'enrolled'));
                 }
                 if (course.isPaid) {
-                    badges.appendChild(createBadge('Платный', 'paid'));
+                    badges.appendChild(createBadge(t('catalog.badgePaid'), 'paid'));
                 } else if (course.withCertificate) {
-                    badges.appendChild(createBadge('Сертификат'));
+                    badges.appendChild(createBadge(t('catalog.badgeCertificate')));
                 }
                 if (badges.childNodes.length) {
                     media.appendChild(badges);
@@ -1100,7 +1128,10 @@ export class CourseCatalogView implements vscode.Disposable {
                     star.textContent = '★';
                     rating.appendChild(star);
                     rating.appendChild(document.createTextNode(
-                        String(course.ratingAverage).replace('.', ',')
+                        Number(course.ratingAverage).toLocaleString(
+                            L.__locale || undefined,
+                            { maximumFractionDigits: 1 }
+                        )
                     ));
                     if (course.ratingCount) {
                         var count = document.createElement('span');
@@ -1109,15 +1140,18 @@ export class CourseCatalogView implements vscode.Disposable {
                         rating.appendChild(count);
                     }
                     rating.title = course.ratingCount
-                        ? formatNumber(course.ratingCount) + ' ' + plural(course.ratingCount, 'отзыв', 'отзыва', 'отзывов')
-                        : 'Оценок пока нет';
+                        ? t('catalog.reviewsTitle', {
+                              count: formatNumber(course.ratingCount),
+                              word: plural('catalog.reviews', course.ratingCount)
+                          })
+                        : t('catalog.noRatings');
                     meta.appendChild(rating);
                 }
 
                 if (course.learnersCount) {
                     meta.appendChild(metaItem(
                         formatNumber(course.learnersCount) + ' ' +
-                        plural(course.learnersCount, 'ученик', 'ученика', 'учеников')
+                        plural('catalog.learners', course.learnersCount)
                     ));
                 }
 
@@ -1137,11 +1171,11 @@ export class CourseCatalogView implements vscode.Disposable {
                 details.className = 'course-meta';
                 var price = document.createElement('span');
                 price.className = 'price' + (course.isPaid ? ' paid' : '');
-                price.textContent = course.isPaid ? course.price : 'Бесплатно';
+                price.textContent = course.isPaid ? course.price : t('catalog.free');
                 details.appendChild(price);
                 var created = formatDate(course.createDate);
                 if (created) {
-                    details.appendChild(metaItem('с ' + created));
+                    details.appendChild(metaItem(t('catalog.since', { date: created })));
                 }
                 body.appendChild(details);
 
@@ -1155,21 +1189,23 @@ export class CourseCatalogView implements vscode.Disposable {
                 select.setAttribute('data-course-id', String(course.id));
 
                 if (requiresPurchase) {
-                    select.textContent = 'Купить на Stepik ↗';
-                    select.title = 'Платный курс: покупка и запись доступны на stepik.org';
+                    select.textContent = t('catalog.buy');
+                    select.title = t('catalog.buyTitle');
                     select.addEventListener('click', function () {
                         vscode.postMessage({ command: 'openExternal', url: course.url });
                     });
                     actions.appendChild(select);
                 } else {
-                    var idleLabel = needsEnrollment ? 'Записаться на курс' : 'Выбрать курс';
+                    var idleLabel = needsEnrollment ? t('catalog.enroll') : t('catalog.select');
                     select.textContent = idleLabel;
                     if (needsEnrollment) {
-                        select.title = 'Записаться на бесплатный курс и открыть его';
+                        select.title = t('catalog.enrollHint');
                     }
                     select.addEventListener('click', function () {
                         select.disabled = true;
-                        select.textContent = needsEnrollment ? 'Записываемся…' : 'Выбираем…';
+                        select.textContent = needsEnrollment
+                            ? t('catalog.enrolling')
+                            : t('catalog.selecting');
                         vscode.postMessage({
                             command: needsEnrollment ? 'enrollCourse' : 'selectCourse',
                             courseId: course.id
@@ -1191,8 +1227,8 @@ export class CourseCatalogView implements vscode.Disposable {
                     var external = document.createElement('button');
                     external.type = 'button';
                     external.className = 'secondary-button';
-                    external.textContent = 'На Stepik ↗';
-                    external.title = 'Открыть курс на stepik.org';
+                    external.textContent = t('catalog.openStepik');
+                    external.title = t('catalog.openStepikTitle');
                     external.addEventListener('click', function () {
                         vscode.postMessage({ command: 'openExternal', url: course.url });
                     });
@@ -1203,12 +1239,12 @@ export class CourseCatalogView implements vscode.Disposable {
                 if (requiresPurchase) {
                     var purchaseHint = document.createElement('p');
                     purchaseHint.className = 'purchase-hint';
-                    purchaseHint.textContent = 'Покупка и запись доступны на stepik.org.';
+                    purchaseHint.textContent = t('catalog.purchaseHint');
                     body.appendChild(purchaseHint);
                 } else if (needsEnrollment) {
                     var enrollHint = document.createElement('p');
                     enrollHint.className = 'purchase-hint';
-                    enrollHint.textContent = 'Запись бесплатная и произойдёт в вашем аккаунте Stepik.';
+                    enrollHint.textContent = t('catalog.enrollHint');
                     body.appendChild(enrollHint);
                 }
 
@@ -1263,21 +1299,25 @@ export class CourseCatalogView implements vscode.Disposable {
 
                 if (entry.loading && entry.courses.length === 0) {
                     status.className = 'status loading';
-                    status.textContent = 'Загружаем курсы…';
+                    status.textContent = t('catalog.loading');
                 } else if (entry.error) {
                     status.className = 'status error';
                     status.textContent = entry.error;
                 } else if (!entry.loaded) {
                     status.className = 'status loading';
-                    status.textContent = 'Загружаем курсы…';
+                    status.textContent = t('catalog.loading');
                 } else if (list.length === 0) {
                     status.className = 'status';
-                    status.textContent = 'Ничего не найдено';
+                    status.textContent = t('catalog.nothingFound');
                 } else {
                     status.className = 'status';
-                    var suffix = state.search.trim() ? ' по запросу «' + state.search.trim() + '»' : '';
-                    status.textContent = 'Найдено ' + list.length + ' ' +
-                        plural(list.length, 'курс', 'курса', 'курсов') + suffix;
+                    var suffix = state.search.trim()
+                        ? t('catalog.foundQuery', { query: state.search.trim() })
+                        : '';
+                    status.textContent = t('catalog.found', {
+                        count: list.length,
+                        word: plural('catalog.courseWord', list.length)
+                    }) + suffix;
                 }
 
                 if (list.length === 0) {
@@ -1291,18 +1331,18 @@ export class CourseCatalogView implements vscode.Disposable {
                     var heading = document.createElement('strong');
                     var hint = document.createElement('span');
                     if (entry.error) {
-                        heading.textContent = 'Не удалось загрузить курсы';
-                        hint.textContent = 'Проверьте подключение к Stepik и попробуйте ещё раз.';
+                        heading.textContent = t('catalog.emptyErrorTitle');
+                        hint.textContent = t('catalog.emptyErrorHint');
                     } else if (entry.loaded) {
                         heading.textContent = state.search.trim()
-                            ? 'По вашему запросу ничего не найдено'
-                            : 'Здесь пока нет курсов';
+                            ? t('catalog.emptySearchTitle')
+                            : t('catalog.emptyTitle');
                         hint.textContent = state.freeOnly
-                            ? 'Попробуйте выключить фильтр «Только бесплатные» или изменить запрос.'
-                            : 'Попробуйте изменить запрос или выбрать другую вкладку.';
+                            ? t('catalog.emptyFilterHint')
+                            : t('catalog.emptyHint');
                     } else {
-                        heading.textContent = 'Загружаем курсы…';
-                        hint.textContent = 'Это займёт пару секунд.';
+                        heading.textContent = t('catalog.loadingTitle');
+                        hint.textContent = t('catalog.loadingHint');
                     }
                     empty.appendChild(heading);
                     empty.appendChild(hint);
@@ -1319,20 +1359,23 @@ export class CourseCatalogView implements vscode.Disposable {
                 var showLoadingMore = busy && entry.courses.length > 0 && !entry.error;
                 loadingMore.hidden = !showLoadingMore;
                 if (showLoadingMore) {
-                    loadingMore.firstElementChild.textContent = 'Загружаем ещё 20 курсов…';
+                    loadingMore.firstElementChild.textContent = t('catalog.loadingMore');
                 }
 
                 footerNote.textContent = entry.courses.length && !entry.error
-                    ? 'Загружено: ' + entry.courses.length + (busy ? ' · загружаем ещё…' : '')
+                    ? t('catalog.footerLoaded', { count: entry.courses.length }) +
+                        (busy ? t('catalog.footerLoading') : '')
                     : '';
 
                 if (entry.error) {
                     loadMore.hidden = false;
-                    loadMore.textContent = 'Повторить';
+                    loadMore.textContent = t('catalog.retry');
                     loadMore.disabled = false;
                 } else if (entry.loaded && entry.hasNext) {
                     loadMore.hidden = false;
-                    loadMore.textContent = busy ? 'Загружаем…' : 'Загрузить ещё';
+                    loadMore.textContent = busy
+                        ? t('catalog.footerLoadingButton')
+                        : t('catalog.loadMore');
                     loadMore.disabled = busy;
                 } else {
                     loadMore.hidden = true;
@@ -1559,8 +1602,8 @@ export class CourseCatalogView implements vscode.Disposable {
                         '.primary-button[data-course-id="' + Number(message.courseId) + '"]'
                     );
                     var failedLabel = message.command === 'enrollFailed'
-                        ? 'Записаться на курс'
-                        : 'Выбрать курс';
+                        ? t('catalog.enroll')
+                        : t('catalog.select');
                     Array.prototype.forEach.call(failed, function (button) {
                         button.disabled = false;
                         button.textContent = failedLabel;
@@ -1605,7 +1648,7 @@ export class CourseCatalogView implements vscode.Disposable {
                 entry.loading = false;
 
                 if (message.command === 'error') {
-                    entry.error = message.message || 'Не удалось загрузить курсы.';
+                    entry.error = message.message || t('catalog.loadErrorFallback');
                     if (message.page === 1) {
                         entry.loaded = true;
                         entry.version += 1;

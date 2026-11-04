@@ -42,6 +42,8 @@ import { ExamSession } from '../api/stepikApi';
 import { highlightCode, highlightCodeBlocks } from './syntaxHighlighter';
 import { getRichCommentEditorScript } from './richCommentEditor';
 import { uploadCommentImage } from '../uploadcare';
+import { getLanguage, pluralize, t, webviewStrings } from '../i18n';
+import { stepikBrandHtml, stepikThemeCss } from './theme';
 import TurndownService from 'turndown';
 
 // turndown-plugin-gfm ships without TypeScript declarations. Only the GFM
@@ -296,7 +298,7 @@ export class StepikWebview implements vscode.Disposable {
                 }
                 if (access && !access.canOpenStep) {
                     vscode.window.showWarningMessage(
-                        access.reason || 'Этот шаг сейчас недоступен.'
+                        access.reason || t('task.stepUnavailable')
                     );
                     return;
                 }
@@ -313,7 +315,7 @@ export class StepikWebview implements vscode.Disposable {
                     (!examSessionHint || !isExamSessionActive(examSessionHint))
                 ) {
                     vscode.window.showErrorMessage(
-                        'Не удалось проверить доступ к экзамену. Экзаменационные материалы остаются заблокированы.'
+                        t('task.examAccessCheckFailed')
                     );
                     return;
                 }
@@ -335,7 +337,7 @@ export class StepikWebview implements vscode.Disposable {
                 );
                 if (!access.canOpenStep) {
                     vscode.window.showWarningMessage(
-                        access.reason || 'Этот шаг сейчас недоступен.'
+                        access.reason || t('task.stepUnavailable')
                     );
                     return;
                 }
@@ -347,7 +349,7 @@ export class StepikWebview implements vscode.Disposable {
                 (!examSessionHint || !isExamSessionActive(examSessionHint))
             ) {
                 vscode.window.showWarningMessage(
-                    'Не удалось проверить состояние экзамена. Материалы остаются заблокированы.'
+                    t('task.examStateCheckFailed')
                 );
                 return;
             }
@@ -393,7 +395,7 @@ export class StepikWebview implements vscode.Disposable {
         if (!this.panel) {
             this.panel = vscode.window.createWebviewPanel(
                 'stepikStep',
-                'Stepik Task',
+                t('task.panelTitle'),
                 vscode.ViewColumn.Beside,
                 {
                     enableScripts: true,
@@ -430,7 +432,7 @@ export class StepikWebview implements vscode.Disposable {
             await this.createAttemptForStep(step);
         }
 
-        this.panel.title = `Step ${step.position}`;
+        this.panel.title = t('task.tabTitle', { position: step.position });
         this.panel.webview.html = this.getHtmlContent(step);
 
         // The website creates a view record on every step change. Text steps
@@ -618,9 +620,7 @@ export class StepikWebview implements vscode.Disposable {
             this.outputChannel.appendLine(
                 `[Attempt] Failed to create an attempt for step ${step.id}: ${detail}`
             );
-            vscode.window.showErrorMessage(
-                `Не удалось создать попытку для задания: ${detail}`
-            );
+            vscode.window.showErrorMessage(t('task.createAttemptFailed'));
         }
     }
 
@@ -719,7 +719,7 @@ export class StepikWebview implements vscode.Disposable {
                 await this.api.markStepViewed(stepId);
             }
             if (!ok) {
-                throw new Error('Не удалось отметить просмотр на Stepik.');
+                throw new Error(t('task.viewMarkFailed'));
             }
             this.markedVideoSteps.add(stepId);
 
@@ -741,7 +741,7 @@ export class StepikWebview implements vscode.Disposable {
                 await this.panel.webview.postMessage({
                     command: 'videoViewed',
                     ok: false,
-                    message: 'Не удалось отметить просмотр на Stepik.'
+                    message: t('task.viewMarkFailed')
                 });
             }
         } finally {
@@ -777,7 +777,7 @@ export class StepikWebview implements vscode.Disposable {
         if (!sourceUrl) {
             this.postVideoAudio(videoId, {
                 ok: false,
-                message: 'Не удалось найти звуковую дорожку.'
+                message: t('task.audioNotFound')
             });
             return;
         }
@@ -847,7 +847,7 @@ export class StepikWebview implements vscode.Disposable {
         );
         this.postVideoAudio(videoId, {
             ok: false,
-            message: `Не удалось подготовить звук: ${detail}`
+            message: t('task.audioPrepareError', { detail })
         });
     }
 
@@ -924,7 +924,12 @@ export class StepikWebview implements vscode.Disposable {
                     workerData: {
                         url: sourceUrl,
                         inputPath,
-                        outputPath: partialPath
+                        outputPath: partialPath,
+                        messages: {
+                            downloadFailed: t('audio.downloadFailed'),
+                            noStream: t('audio.noStream'),
+                            noTrack: t('audio.noTrack')
+                        }
                     }
                 });
             } catch (error) {
@@ -951,7 +956,7 @@ export class StepikWebview implements vscode.Disposable {
                 if (message.type === 'done') {
                     try {
                         if (!this.hasVideoAudio(partialPath)) {
-                            throw new Error('Аудиодорожка не была создана.');
+                            throw new Error(t('task.audioNotCreated'));
                         }
                         fs.copyFileSync(partialPath, finalPath);
                         cleanup();
@@ -962,13 +967,13 @@ export class StepikWebview implements vscode.Disposable {
                     return;
                 }
                 if (message.type === 'error') {
-                    finish(new Error(message.message || 'Не удалось подготовить звук.'));
+                    finish(new Error(message.message || t('task.audioPrepareFailed')));
                 }
             });
             worker.on('error', error => finish(error));
             worker.on('exit', code => {
                 if (!settled) {
-                    finish(new Error(`Подготовка звука завершилась с кодом ${code}.`));
+                    finish(new Error(t('task.audioPrepareExit', { code })));
                 }
             });
         });
@@ -1016,6 +1021,15 @@ export class StepikWebview implements vscode.Disposable {
         } catch {
             // Older VS Code versions may not expose this command.
         }
+    }
+
+    /** Re-render the task panel after the interface language changed. */
+    refreshLocalization(): void {
+        if (!this.panel || !this.currentStep) {
+            return;
+        }
+        this.panel.title = t('task.tabTitle', { position: this.currentStep.step.position });
+        this.panel.webview.html = this.getHtmlContent(this.currentStep.step);
     }
 
     dispose(): void {
@@ -1169,7 +1183,7 @@ export class StepikWebview implements vscode.Disposable {
             return this.progressError
                 ? `<div class="progress-panel progress-panel-error" title="${this.escapeHtml(
                       this.progressError
-                  )}">Не удалось загрузить прогресс</div>`
+                  )}">${t('task.progressLoadError')}</div>`
                 : '';
         }
 
@@ -1177,9 +1191,9 @@ export class StepikWebview implements vscode.Disposable {
             summary.cost > 0
                 ? `${summary.score}/${summary.cost}`
                 : String(summary.score);
-        const streakWord = this.pluralizeRu(summary.streak, 'день', 'дня', 'дней');
+        const streakWord = pluralize(summary.streak, 'task.dayForms');
         const maxStreak = Math.max(summary.maxStreak, summary.streak);
-        const maxStreakWord = this.pluralizeRu(maxStreak, 'день', 'дня', 'дней');
+        const maxStreakWord = pluralize(maxStreak, 'task.dayForms');
         const remaining = summary.certificateRemaining;
         const progressPercent =
             summary.cost > 0
@@ -1214,18 +1228,13 @@ export class StepikWebview implements vscode.Disposable {
         if (summary.certificateThreshold && remaining !== undefined) {
             const pointsLine =
                 remaining > 0
-                    ? `Получить до сертификата: <span>${this.formatCount(
+                    ? `${t('task.toCertificate')} <span>${this.formatCount(
                           remaining
-                      )} ${this.pluralizeRu(
-                          remaining,
-                          'балл',
-                          'балла',
-                          'баллов'
-                      )}</span>`
-                    : 'Сертификат получен';
+                      )} ${pluralize(remaining, 'task.pointForms')}</span>`
+                    : t('task.certificateReceived');
             const timeLine =
                 remaining > 0 && summary.studyTimeHours !== undefined
-                    ? `<div class="progress-tooltip-line">Учиться: <span>${this.formatStudyTime(
+                    ? `<div class="progress-tooltip-line">${t('task.studyTime')} <span>${this.formatStudyTime(
                           summary.studyTimeHours
                       )}</span></div>`
                     : '';
@@ -1238,8 +1247,8 @@ export class StepikWebview implements vscode.Disposable {
         }
 
         return `
-            <div class="progress-panel" id="progress-panel" role="group" aria-label="Прогресс по курсу">
-                <div class="progress-streak" role="img" tabindex="0" aria-label="Серия: ${summary.streak} ${streakWord}. Максимальная серия: ${maxStreak} ${maxStreakWord}" aria-describedby="progress-streak-tooltip">
+            <div class="progress-panel" id="progress-panel" role="group" aria-label="${t('task.progressAria')}">
+                <div class="progress-streak" role="img" tabindex="0" aria-label="${t('task.streakAria', { streak: summary.streak, word: streakWord, max: maxStreak, maxWord: maxStreakWord })}" aria-describedby="progress-streak-tooltip">
                     <svg class="progress-streak-icon" viewBox="0 0 40 40" aria-hidden="true" focusable="false">
                         <g clip-path="url(#stepik-streak-clip)" fill-rule="evenodd" clip-rule="evenodd" fill="currentColor">
                             <path d="M24.891 36.826c1.45-.739 2.868-2.122 6.34-5.595 3.473-3.472 4.856-4.89 5.595-6.34a10.774 10.774 0 000-9.782c-.739-1.45-2.122-2.868-5.595-6.34-3.472-3.473-4.89-4.856-6.34-5.595a10.774 10.774 0 00-9.782 0c-1.45.739-2.868 2.122-6.34 5.595-3.473 3.472-4.856 4.89-5.595 6.34a10.774 10.774 0 000 9.782c.739 1.45 2.122 2.868 5.595 6.34 3.472 3.473 4.89 4.856 6.34 5.595a10.774 10.774 0 009.782 0zM1.392 25.799c.919 1.803 2.6 3.484 5.962 6.847 3.363 3.362 5.044 5.043 6.847 5.962a12.774 12.774 0 0011.598 0c1.803-.919 3.484-2.6 6.847-5.962 3.362-3.363 5.043-5.044 5.962-6.847a12.774 12.774 0 000-11.598c-.919-1.803-2.6-3.484-5.962-6.847-3.363-3.362-5.044-5.043-6.847-5.962a12.774 12.774 0 00-11.598 0c-1.803.919-3.484 2.6-6.847 5.962-3.362 3.363-5.043 5.044-5.962 6.847a12.774 12.774 0 000 11.598z"></path>
@@ -1253,17 +1262,17 @@ export class StepikWebview implements vscode.Disposable {
                     </svg>
                     <span class="progress-streak-count">${summary.streak}</span>
                     <div class="progress-tooltip progress-tooltip-streak" id="progress-streak-tooltip" role="tooltip">
-                        <div class="progress-tooltip-title">Серия занятий</div>
-                        <div class="progress-tooltip-line">${summary.streak} ${streakWord} без перерыва</div>
-                        <div class="progress-tooltip-line">Максимальная серия: <span>${maxStreak} ${maxStreakWord}</span></div>
+                        <div class="progress-tooltip-title">${t('task.streakTitle')}</div>
+                        <div class="progress-tooltip-line">${t('task.streakLine', { streak: summary.streak, word: streakWord })}</div>
+                        <div class="progress-tooltip-line">${t('task.maxStreakLabel')} <span>${maxStreak} ${maxStreakWord}</span></div>
                     </div>
                 </div>
                 <div class="progress-course"${tooltip ? ' tabindex="0" aria-describedby="progress-tooltip"' : ''}>
                     <div class="progress-course-row">
-                        <span class="progress-course-label">Прогресс по курсу:</span>
+                        <span class="progress-course-label">${t('task.progressLabel')}</span>
                         <span class="progress-course-score">${this.escapeHtml(points)}</span>
                     </div>
-                    <div class="progress-line" role="progressbar" aria-label="Прогресс по курсу" aria-valuemin="0" aria-valuemax="${summary.cost}" aria-valuenow="${summary.score}">
+                    <div class="progress-line" role="progressbar" aria-label="${t('task.progressAria')}" aria-valuemin="0" aria-valuemax="${summary.cost}" aria-valuenow="${summary.score}">
                         <div class="progress-line-track">
                             <span class="progress-line-fill" style="width: ${progressPercent.toFixed(2)}%"></span>
                             ${progressMarkers}
@@ -1285,14 +1294,16 @@ export class StepikWebview implements vscode.Disposable {
     private formatStudyTime(hours: number): string {
         const rounded = Math.round(hours * 2) / 2;
         if (!Number.isFinite(rounded) || rounded <= 0) {
-            return 'меньше часа';
+            return t('task.lessThanHour');
         }
         const value = Number.isInteger(rounded)
             ? String(rounded)
-            : rounded.toFixed(1).replace('.', ',');
+            : getLanguage() === 'ru'
+                ? rounded.toFixed(1).replace('.', ',')
+                : rounded.toFixed(1);
         const word = Number.isInteger(rounded)
-            ? this.pluralizeRu(rounded, 'час', 'часа', 'часов')
-            : 'часа';
+            ? pluralize(rounded, 'task.hourForms')
+            : t('task.hourShort');
         return `${value} ${word}`;
     }
 
@@ -1819,7 +1830,7 @@ export class StepikWebview implements vscode.Disposable {
             if (this.panel && this.currentStep && this.currentStep.step.id === stepId) {
                 await this.panel.webview.postMessage({
                     command: 'commentsError',
-                    message: `Не удалось загрузить комментарии: ${message}`
+                    message: t('task.commentsLoadError', { detail: message })
                 });
             }
         } finally {
@@ -1950,7 +1961,7 @@ export class StepikWebview implements vscode.Disposable {
                     command: 'repliesError',
                     commentId,
                     more,
-                    message: `Не удалось загрузить ответы: ${message}`
+                    message: t('task.repliesLoadError', { detail: message })
                 });
             }
         } finally {
@@ -2326,7 +2337,7 @@ export class StepikWebview implements vscode.Disposable {
                     return;
                 }
                 if (!proxy) {
-                    throw new Error('форум решений пуст или недоступен');
+                    throw new Error(t('task.forumEmpty'));
                 }
                 this.solutionsProxy = proxy;
             }
@@ -2381,7 +2392,7 @@ export class StepikWebview implements vscode.Disposable {
             if (this.panel && this.currentStep && this.currentStep.step.id === stepId) {
                 await this.panel.webview.postMessage({
                     command: 'solutionsError',
-                    message: `Не удалось загрузить решения: ${message}`
+                    message: t('task.solutionsLoadError', { detail: message })
                 });
             }
         } finally {
@@ -2450,7 +2461,7 @@ export class StepikWebview implements vscode.Disposable {
             if (this.panel && this.currentStep && this.currentStep.step.id === stepId) {
                 await this.panel.webview.postMessage({
                     command: 'solutionsError',
-                    message: `Не удалось загрузить решения: ${message}`
+                    message: t('task.solutionsLoadError', { detail: message })
                 });
             }
         } finally {
@@ -2481,7 +2492,7 @@ export class StepikWebview implements vscode.Disposable {
                 command: 'commentPostError',
                 parentId,
                 thread,
-                message: 'Введите текст комментария.'
+                message: t('task.enterCommentText')
             });
             return;
         }
@@ -2490,7 +2501,7 @@ export class StepikWebview implements vscode.Disposable {
                 command: 'commentPostError',
                 parentId,
                 thread,
-                message: 'Комментарий слишком длинный (максимум 150 000 символов).'
+                message: t('task.commentTooLong')
             });
             return;
         }
@@ -2512,10 +2523,10 @@ export class StepikWebview implements vscode.Disposable {
                     : undefined;
                 if (!attachedSubmission) {
                     const reason = this.solutionSubmissionsError
-                        ? `Не удалось загрузить ваши решения: ${this.solutionSubmissionsError}`
+                        ? t('task.solutionSubmissionsLoadError', { detail: this.solutionSubmissionsError })
                         : this.solutionSubmissions.length === 0
-                            ? 'Нет отправленных решений. Сначала отправьте решение на проверку.'
-                            : 'Выберите решение, которое нужно прикрепить к комментарию.';
+                            ? t('task.noSubmittedSolutionsHint')
+                            : t('task.selectSolutionHint');
                     await this.panel.webview.postMessage({
                         command: 'commentPostError',
                         thread: 'solutions',
@@ -2583,7 +2594,7 @@ export class StepikWebview implements vscode.Disposable {
                     await this.panel.webview.postMessage({
                         command: 'commentPostError',
                         thread: 'solutions',
-                        message: `Решение отправлено, но список не обновился: ${this.solutionsError}`
+                        message: t('task.solutionsRefreshError', { detail: this.solutionsError })
                     });
                     return;
                 }
@@ -2621,7 +2632,7 @@ export class StepikWebview implements vscode.Disposable {
                 if (this.commentsError) {
                     await this.panel.webview.postMessage({
                         command: 'commentPostError',
-                        message: `Комментарий отправлен, но список не обновился: ${this.commentsError}`
+                        message: t('task.commentsRefreshError', { detail: this.commentsError })
                     });
                 } else {
                     await this.panel.webview.postMessage({
@@ -2641,7 +2652,7 @@ export class StepikWebview implements vscode.Disposable {
                     command: 'commentPostError',
                     parentId,
                     thread,
-                    message: `Не удалось отправить: ${message}`
+                    message: t('task.sendError', { detail: message })
                 });
             }
         }
@@ -2698,14 +2709,14 @@ export class StepikWebview implements vscode.Disposable {
                 }
                 case 'uploadCommentImage': {
                     if (!message.data) {
-                        throw new Error('Изображение не передано.');
+                        throw new Error(t('task.imageNotTransferred'));
                     }
                     const buffer = Buffer.from(message.data, 'base64');
                     if (buffer.length === 0) {
-                        throw new Error('Файл изображения пуст.');
+                        throw new Error(t('task.imageFileEmpty'));
                     }
                     if (buffer.length > 15 * 1024 * 1024) {
-                        throw new Error('Изображение больше 15 МБ.');
+                        throw new Error(t('task.imageTooLarge'));
                     }
                     const uploaded = await uploadCommentImage(
                         new Uint8Array(buffer),
@@ -2722,11 +2733,11 @@ export class StepikWebview implements vscode.Disposable {
                 }
                 case 'loadCommentEditor': {
                     if (!message.commentId) {
-                        throw new Error('Комментарий не найден.');
+                        throw new Error(t('task.commentNotFound'));
                     }
                     const comment = this.findComment(message.commentId);
                     if (!comment) {
-                        throw new Error('Комментарий не найден.');
+                        throw new Error(t('task.commentNotFound'));
                     }
                     await this.respondToCommentEditor(message, {
                         html: this.sanitizeCommentHtml(comment.text || '')
@@ -2773,7 +2784,7 @@ export class StepikWebview implements vscode.Disposable {
             await this.panel.webview.postMessage({
                 command: 'commentActionError',
                 commentId,
-                message: 'Комментарий не найден.'
+                message: t('task.commentNotFound')
             });
             return;
         }
@@ -2783,7 +2794,7 @@ export class StepikWebview implements vscode.Disposable {
             await this.panel.webview.postMessage({
                 command: 'commentActionError',
                 commentId,
-                message: 'Комментарий не может быть пустым.'
+                message: t('task.commentEmpty')
             });
             return;
         }
@@ -2816,7 +2827,7 @@ export class StepikWebview implements vscode.Disposable {
             await this.panel.webview.postMessage({
                 command: 'commentActionError',
                 commentId,
-                message: `Не удалось изменить комментарий: ${detail}`
+                message: t('task.commentUpdateError', { detail })
             });
         }
     }
@@ -2831,11 +2842,11 @@ export class StepikWebview implements vscode.Disposable {
         }
 
         const confirmation = await vscode.window.showWarningMessage(
-            'Удалить этот комментарий? Действие нельзя отменить.',
+            t('task.removeConfirm'),
             { modal: true },
-            'Удалить'
+            t('task.deleteConfirmButton')
         );
-        if (confirmation !== 'Удалить') {
+        if (confirmation !== t('task.deleteConfirmButton')) {
             await this.panel.webview.postMessage({
                 command: 'commentActionCancelled',
                 commentId
@@ -2875,7 +2886,7 @@ export class StepikWebview implements vscode.Disposable {
             await this.panel.webview.postMessage({
                 command: 'commentActionError',
                 commentId,
-                message: `Не удалось удалить комментарий: ${detail}`
+                message: t('task.commentDeleteError', { detail })
             });
         }
     }
@@ -2916,7 +2927,7 @@ export class StepikWebview implements vscode.Disposable {
             await this.panel.webview.postMessage({
                 command: 'commentActionError',
                 commentId,
-                message: `Не удалось скопировать ссылку: ${detail}`
+                message: t('task.copyLinkError', { detail })
             });
         }
     }
@@ -2938,7 +2949,7 @@ export class StepikWebview implements vscode.Disposable {
                 vote: this.commentVoteValues.get(commentId) ?? null,
                 epicCount: Math.max(0, comment?.epic_count || 0),
                 abuseCount: Math.max(0, comment?.abuse_count || 0),
-                message: 'Голосование недоступно для этого комментария.'
+                message: t('task.voteUnavailable')
             });
             return;
         }
@@ -2950,7 +2961,7 @@ export class StepikWebview implements vscode.Disposable {
                 vote: this.commentVoteValues.get(commentId) ?? null,
                 epicCount: Math.max(0, Number(comment.epic_count) || 0),
                 abuseCount: Math.max(0, Number(comment.abuse_count) || 0),
-                message: 'Нельзя голосовать за свой комментарий.'
+                message: t('task.voteOwnError')
             });
             return;
         }
@@ -3011,7 +3022,7 @@ export class StepikWebview implements vscode.Disposable {
                 vote: previous,
                 epicCount: Math.max(0, Number(comment.epic_count) || 0),
                 abuseCount: Math.max(0, Number(comment.abuse_count) || 0),
-                message: `Не удалось изменить оценку: ${message}`
+                message: t('task.voteChangeError', { detail: message })
             });
         } finally {
             this.voteRequests.delete(commentId);
@@ -3123,14 +3134,14 @@ export class StepikWebview implements vscode.Disposable {
 
     private getComposerToolbarHtml(): string {
         return `
-            <div class="composer-toolbar" role="toolbar" aria-label="Форматирование Markdown">
-                <button type="button" class="format-btn" data-format="bold" title="Жирный (Ctrl+B)"><strong>B</strong></button>
-                <button type="button" class="format-btn" data-format="italic" title="Курсив (Ctrl+I)"><em>I</em></button>
-                <button type="button" class="format-btn" data-format="code" title="Код (Ctrl+E)">&lt;/&gt;</button>
-                <button type="button" class="format-btn" data-format="link" title="Ссылка (Ctrl+K)">Ссылка</button>
-                <button type="button" class="format-btn" data-format="quote" title="Цитата">Цитата</button>
-                <button type="button" class="format-btn" data-format="list" title="Список">Список</button>
-                <button type="button" class="format-btn" data-format="codeblock" title="Блок кода">Код</button>
+            <div class="composer-toolbar" role="toolbar" aria-label="${t('task.formattingAria')}">
+                <button type="button" class="format-btn" data-format="bold" title="${t('task.formatBold')}"><strong>B</strong></button>
+                <button type="button" class="format-btn" data-format="italic" title="${t('task.formatItalic')}"><em>I</em></button>
+                <button type="button" class="format-btn" data-format="code" title="${t('task.formatCode')}">&lt;/&gt;</button>
+                <button type="button" class="format-btn" data-format="link" title="${t('task.formatLink')}">${t('task.formatLinkLabel')}</button>
+                <button type="button" class="format-btn" data-format="quote" title="${t('task.formatQuote')}">${t('task.formatQuoteLabel')}</button>
+                <button type="button" class="format-btn" data-format="list" title="${t('task.formatList')}">${t('task.formatListLabel')}</button>
+                <button type="button" class="format-btn" data-format="codeblock" title="${t('task.formatCodeBlock')}">${t('task.formatCodeLabel')}</button>
                 <span class="composer-toolbar-hint">Markdown</span>
             </div>
         `;
@@ -3146,8 +3157,8 @@ export class StepikWebview implements vscode.Disposable {
         const pinnedHtml = this.renderCommentsHtml(this.pinnedComments);
         const commentsHtml = this.renderCommentsHtml(this.comments);
         const emptyText = this.commentSort === 'mine'
-            ? 'У вас пока нет комментариев к этой задаче.'
-            : 'Комментариев пока нет. Будьте первым!';
+            ? t('task.commentsEmpty')
+            : t('task.commentsEmptyOther');
         const emptyHtml = this.pinnedComments.length + this.comments.length === 0
             ? `<div class="comments-empty">${emptyText}</div>`
             : '';
@@ -3189,7 +3200,7 @@ export class StepikWebview implements vscode.Disposable {
                             `[Solutions] Не удалось создать файл решения: ${detail}`
                         );
                         vscode.window.showErrorMessage(
-                            `Не удалось создать файл решения: ${detail}`
+                            t('task.createSolutionFileError', { detail })
                         );
                     }
                 }
@@ -3367,35 +3378,35 @@ export class StepikWebview implements vscode.Disposable {
 
         if (stepType === 'choice') {
             if (!Array.isArray(reply.choices)) {
-                return 'Выберите вариант ответа.';
+                return t('task.chooseOption');
             }
             return undefined;
         }
 
         if (stepType === 'string') {
             if (typeof reply.text !== 'string') {
-                return 'Введите ответ.';
+                return t('task.enterAnswer');
             }
             return undefined;
         }
 
         if (stepType === 'number') {
             if (typeof reply.number !== 'string' || !reply.number.trim()) {
-                return 'Введите число.';
+                return t('task.enterNumber');
             }
             return undefined;
         }
 
         if (stepType === 'math') {
             if (typeof reply.formula !== 'string' || !reply.formula.trim()) {
-                return 'Введите формулу.';
+                return t('task.enterFormula');
             }
             return undefined;
         }
 
         if (stepType === 'free-answer') {
             if (typeof reply.text !== 'string' || !reply.text.trim()) {
-                return 'Напишите ответ.';
+                return t('task.writeAnswer');
             }
             return undefined;
         }
@@ -3403,7 +3414,7 @@ export class StepikWebview implements vscode.Disposable {
         if (stepType === 'sorting') {
             const expected = dataset?.options?.length ?? 0;
             if (!Array.isArray(reply.ordering) || reply.ordering.length !== expected) {
-                return 'Заполните порядок элементов.';
+                return t('task.orderItems');
             }
             return undefined;
         }
@@ -3411,7 +3422,7 @@ export class StepikWebview implements vscode.Disposable {
         if (stepType === 'matching') {
             const expected = dataset?.pairs?.length ?? 0;
             if (!Array.isArray(reply.ordering) || reply.ordering.length !== expected) {
-                return 'Сопоставьте все элементы.';
+                return t('task.matchAll');
             }
             return undefined;
         }
@@ -3420,12 +3431,12 @@ export class StepikWebview implements vscode.Disposable {
             const rows = dataset?.rows?.length ?? 0;
             const columns = dataset?.columns?.length ?? 0;
             if (!Array.isArray(reply.choices) || reply.choices.length !== rows) {
-                return 'Заполните таблицу.';
+                return t('task.fillTable');
             }
             const valid = (reply.choices as TableRowChoice[]).every(
                 row => Array.isArray(row.columns) && row.columns.length === columns
             );
-            return valid ? undefined : 'Заполните таблицу.';
+            return valid ? undefined : t('task.fillTable');
         }
 
         if (stepType === 'fill-blanks') {
@@ -3433,41 +3444,41 @@ export class StepikWebview implements vscode.Disposable {
                 component => component.type !== 'text'
             ).length;
             if (!Array.isArray(reply.blanks) || reply.blanks.length !== expected) {
-                return 'Заполните все пропуски.';
+                return t('task.fillBlanks');
             }
             return undefined;
         }
 
         if (stepType === 'sql') {
             if (typeof reply.solve_sql !== 'string' || !reply.solve_sql.trim()) {
-                return 'Введите SQL-запрос.';
+                return t('task.enterSql');
             }
             return undefined;
         }
 
         if (stepType === 'html') {
             if (typeof reply.html !== 'string' || !reply.html.trim()) {
-                return 'Введите HTML-код.';
+                return t('task.enterHtml');
             }
             return undefined;
         }
 
         if (stepType === 'dataset') {
             if (typeof reply.file !== 'string' || !reply.file.trim()) {
-                return 'Введите решение для файла данных.';
+                return t('task.enterDataset');
             }
             return undefined;
         }
 
         if (stepType === 'chemical') {
             if (!Array.isArray(reply.slots)) {
-                return 'Заполните все части формулы.';
+                return t('task.fillFormulaParts');
             }
             return undefined;
         }
 
         if (stepType === 'puzzle') {
-            return typeof reply.solved === 'boolean' ? undefined : 'Соберите пазл.';
+            return typeof reply.solved === 'boolean' ? undefined : t('task.solvePuzzle');
         }
 
         return undefined;
@@ -3475,7 +3486,7 @@ export class StepikWebview implements vscode.Disposable {
 
     private async submitQuiz(message: WebviewMessage): Promise<void> {
         if (!this.currentStep || !this.currentAttempt) {
-            this.postQuizStatus('error', 'Нет активной попытки. Перезапустите задание.');
+            this.postQuizStatus('error', t('task.noActiveAttempt'));
             return;
         }
 
@@ -3484,7 +3495,7 @@ export class StepikWebview implements vscode.Disposable {
         const reply = this.buildQuizReply(stepType, message);
 
         if (!reply) {
-            this.postQuizStatus('error', 'Не удалось собрать ответ.');
+            this.postQuizStatus('error', t('task.replyBuildError'));
             return;
         }
 
@@ -3495,13 +3506,13 @@ export class StepikWebview implements vscode.Disposable {
             access = await this.treeProvider.canSubmit(this.currentStep.section?.id);
         } catch (error) {
             const detail = error instanceof Error ? error.message : String(error);
-            this.postQuizStatus('error', `Не удалось проверить доступ к секции: ${detail}`);
+            this.postQuizStatus('error', t('task.sectionAccessError', { detail }));
             return;
         }
         if (!access.ok) {
             this.postQuizStatus(
                 'error',
-                access.reason || 'Отправка ответа для этой секции сейчас недоступна.'
+                access.reason || t('task.submitUnavailable')
             );
             return;
         }
@@ -3513,9 +3524,9 @@ export class StepikWebview implements vscode.Disposable {
         }
 
         try {
-            this.postQuizStatus('info', 'Отправка ответа…');
+            this.postQuizStatus('info', t('task.submitting'));
             const submission = await this.api.submitQuiz(this.currentAttempt.id, reply);
-            this.postQuizStatus('info', 'Проверка ответа…');
+            this.postQuizStatus('info', t('task.checking'));
             const result = await this.pollSubmissionResult(submission.id);
 
             if (result.status === 'correct') {
@@ -3526,9 +3537,12 @@ export class StepikWebview implements vscode.Disposable {
                 const detail = combineSubmissionFeedback(result.hint, result.feedback);
                 this.postQuizStatus(
                     'success',
-                    `✅ Верно! Баллы: ${result.score}${detail ? `\n${detail}` : ''}`
+                    t('task.correctScore', { score: result.score }) +
+                        (detail ? `\n${detail}` : '')
                 );
-                vscode.window.showInformationMessage(`✅ Correct! Score: ${result.score}`);
+                vscode.window.showInformationMessage(
+                    t('task.correctScore', { score: result.score })
+                );
 
                 // Delay to allow API to update progress, then full refresh
                 await new Promise(resolve => setTimeout(resolve, 1000));
@@ -3537,14 +3551,15 @@ export class StepikWebview implements vscode.Disposable {
                 const detail = combineSubmissionFeedback(result.hint, result.feedback);
                 this.postQuizStatus(
                     'error',
-                    `❌ Неверно${detail ? `\n${detail}` : ''}`
+                    t('task.wrongAnswer') + (detail ? `\n${detail}` : '')
                 );
 
+                const showDetails = t('submit.showDetails');
                 vscode.window.showErrorMessage(
-                    `❌ Wrong answer`,
-                    'Show Details'
+                    t('task.wrongAnswer'),
+                    showDetails
                 ).then(selection => {
-                    if (selection === 'Show Details') {
+                    if (selection === showDetails) {
                         this.outputChannel.show();
                     }
                 });
@@ -3570,8 +3585,8 @@ export class StepikWebview implements vscode.Disposable {
             void this.refreshSolutionsAvailabilityAfterSubmit(stepId);
         } catch (error) {
             const detail = error instanceof Error ? error.message : String(error);
-            this.postQuizStatus('error', `Ошибка отправки: ${detail}`);
-            vscode.window.showErrorMessage(`Submission failed: ${detail}`);
+            this.postQuizStatus('error', t('task.submitError', { detail }));
+            vscode.window.showErrorMessage(t('submit.failed', { detail }));
         }
     }
 
@@ -3619,7 +3634,7 @@ export class StepikWebview implements vscode.Disposable {
         } catch (error) {
             const detail = error instanceof Error ? error.message : String(error);
             vscode.window.showErrorMessage(
-                `Не удалось создать папку решений ${getActiveSolutionRoot()}: ${detail}`
+                t('task.createSolutionFolderError', { path: getActiveSolutionRoot(), detail })
             );
             return;
         }
@@ -3627,7 +3642,7 @@ export class StepikWebview implements vscode.Disposable {
         const dirPath = path.resolve(solutionRoot, courseDir, lessonDir);
         const relativeDir = path.relative(solutionRoot, dirPath);
         if (relativeDir.startsWith('..') || path.isAbsolute(relativeDir)) {
-            vscode.window.showErrorMessage('Некорректное имя курса или урока.');
+            vscode.window.showErrorMessage(t('task.invalidCourseName'));
             return;
         }
         
@@ -3812,38 +3827,66 @@ export class StepikWebview implements vscode.Disposable {
         const stepUrl = `https://stepik.org/lesson/${step.lesson}/step/${step.position}`;
         const navigation = this.getNavigationHtml();
         const examBanner = this.getExamBannerHtml();
+        const strings = JSON.stringify(webviewStrings()).replace(/</g, '\\u003c');
         
         return `<!DOCTYPE html>
-<html>
+<html lang="${getLanguage()}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src https: data: ${this.panel?.webview.cspSource ?? ''}; style-src 'unsafe-inline'; script-src 'nonce-${nonce}'; font-src https: data:; media-src https: ${this.panel?.webview.cspSource ?? ''};">
+    <title>${t('task.panelTitle', { position: step.position })}</title>
     <style>
         ${this.getStyles()}
     </style>
 </head>
-<body>
-    <div class="step-header">
-        ${navigation}
-        <a href="${stepUrl}" class="stepik-link" data-external="true">Open on Stepik ↗</a>
+<body data-view="task">
+    ${stepikBrandHtml()}
+    <div class="task-shell">
+        <div class="step-header">
+            ${navigation}
+            <a href="${stepUrl}" class="stepik-link" data-external="true">${t('task.openOnStepik')}</a>
+        </div>
+
+        ${examBanner}
+
+        <div class="task-type">${this.escapeHtml(getStepTypeTitle(stepType))}</div>
+        ${this.getProgressHtml()}
+
+        ${taskContent}
+        ${videoSection}
+
+        ${languageSelector}
+        ${quizSection}
+        ${samplesHtml}
+        ${this.getCommentsSectionHtml()}
     </div>
 
-    ${examBanner}
-    
-    <div class="task-type">${this.escapeHtml(getStepTypeTitle(stepType))}</div>
-    ${this.getProgressHtml()}
-    
-    ${taskContent}
-    ${videoSection}
-    
-    ${languageSelector}
-    ${quizSection}
-    ${samplesHtml}
-    ${this.getCommentsSectionHtml()}
-    
     <script nonce="${nonce}">
         const vscode = acquireVsCodeApi();
+        const L = ${strings};
+        function t(key, params) {
+            const template = L[key] || key;
+            if (!params) {
+                return template;
+            }
+            return template.replace(/\\{(\\w+)\\}/g, (match, name) =>
+                params[name] === undefined ? match : String(params[name])
+            );
+        }
+        function plural(key, count) {
+            const forms = String(L[key] || '').split('|');
+            if (L.__lang === 'en') {
+                return count === 1 ? (forms[0] || '') : (forms[2] || forms[1] || forms[0] || '');
+            }
+            const abs = Math.abs(count) % 100;
+            const last = abs % 10;
+            if (abs > 10 && abs < 20) { return forms[2] || forms[0] || ''; }
+            if (last > 1 && last < 5) { return forms[1] || forms[0] || ''; }
+            if (last === 1) { return forms[0] || ''; }
+            return forms[2] || forms[0] || '';
+        }
+        window.StepikI18n = { L, t, plural };
         ${this.getScript(stepType, step)}
     </script>
     <script nonce="${nonce}">
@@ -3861,8 +3904,8 @@ export class StepikWebview implements vscode.Disposable {
         const nextDisabled = this.nextStep ? '' : ' disabled';
         return `
             <div class="step-navigation">
-                <button type="button" class="step-nav-btn" data-step-nav="previous"${previousDisabled} title="Предыдущий шаг">← Назад</button>
-                <button type="button" class="step-nav-btn" data-step-nav="next"${nextDisabled} title="Следующий шаг">Далее →</button>
+                <button type="button" class="step-nav-btn" data-step-nav="previous"${previousDisabled} title="${t('task.previousStepTitle')}">${t('task.previous')}</button>
+                <button type="button" class="step-nav-btn" data-step-nav="next"${nextDisabled} title="${t('task.nextStepTitle')}">${t('task.next')}</button>
             </div>
         `;
     }
@@ -3893,9 +3936,9 @@ export class StepikWebview implements vscode.Disposable {
         const deadline = this.getExamDeadline();
         return `
             <div class="exam-banner" id="exam-banner" data-exam-deadline="${deadline ?? ''}">
-                <span class="exam-badge">Экзамен</span>
-                <span id="exam-timer">Осталось ${formatDuration(seconds)}</span>
-                <span class="exam-expired" id="exam-expired" hidden>Время истекло — отправка недоступна.</span>
+                <span class="exam-badge">${t('task.exam')}</span>
+                <span id="exam-timer">${t('task.examTimeLeft', { time: formatDuration(seconds) })}</span>
+                <span class="exam-expired" id="exam-expired" hidden>${t('task.examExpired')}</span>
             </div>
         `;
     }
@@ -3903,12 +3946,12 @@ export class StepikWebview implements vscode.Disposable {
     private getLanguageSelectorHtml(languages: string[]): string {
         return `
             <div class="language-selector">
-                <label>Select Language:</label>
+                <label>${t('task.selectLanguage')}</label>
                 <select id="language-select">
-                    <option value="">-- Choose --</option>
+                    <option value="">${t('task.chooseLanguage')}</option>
                     ${languages.map(lang => `<option value="${this.escapeHtml(lang)}">${this.escapeHtml(lang)}</option>`).join('')}
                 </select>
-                <button id="open-btn" disabled>Open in Editor</button>
+                <button id="open-btn" disabled>${t('task.openInEditor')}</button>
             </div>
         `;
     }
@@ -3943,8 +3986,8 @@ export class StepikWebview implements vscode.Disposable {
         return `
             <div id="quiz-status" class="quiz-status" role="status" aria-live="polite"></div>
             <div class="quiz-actions">
-                <button id="submit-quiz-btn">Отправить</button>
-                <button id="restart-btn" class="secondary">Новая попытка</button>
+                <button id="submit-quiz-btn">${t('task.submit')}</button>
+                <button id="restart-btn" class="secondary">${t('task.newAttempt')}</button>
             </div>
         `;
     }
@@ -3953,7 +3996,7 @@ export class StepikWebview implements vscode.Disposable {
         return `
             <div class="quiz-section">
                 <div class="quiz-error">${this.escapeHtml(message)}</div>
-                ${retry ? `<div class="quiz-actions"><button id="restart-btn" class="secondary">Повторить</button></div>` : ''}
+                ${retry ? `<div class="quiz-actions"><button id="restart-btn" class="secondary">${t('task.retry')}</button></div>` : ''}
             </div>
         `;
     }
@@ -3964,7 +4007,7 @@ export class StepikWebview implements vscode.Disposable {
 
         if (stepType !== 'puzzle' && !this.currentAttempt) {
             return this.getQuizErrorHtml(
-                'Не удалось создать попытку для этого задания. Проверьте подключение и попробуйте ещё раз.'
+                t('task.createAttemptFailed')
             );
         }
 
@@ -3991,9 +4034,9 @@ export class StepikWebview implements vscode.Disposable {
             const textDisabled = dataset.is_text_disabled === true;
             return `
                 <div class="quiz-section">
-                    ${textDisabled ? `<div class="quiz-warning">В этом задании Stepik принимает ответ только файлом. Текстовый ответ может быть отклонён.</div>` : ''}
+                    ${textDisabled ? `<div class="quiz-warning">${t('task.textOnlyFileWarning')}</div>` : ''}
                     <div class="quiz-input">
-                        <input type="text" id="string-input" placeholder="Введите ответ…" autocomplete="off">
+                        <input type="text" id="string-input" placeholder="${t('task.answerPlaceholder')}" autocomplete="off">
                     </div>
                     ${this.getQuizStatusHtml()}
                 </div>
@@ -4004,7 +4047,7 @@ export class StepikWebview implements vscode.Disposable {
             return `
                 <div class="quiz-section">
                     <div class="quiz-input">
-                        <input type="number" id="number-input" placeholder="Введите число…" step="any">
+                        <input type="number" id="number-input" placeholder="${t('task.numberPlaceholder')}" step="any">
                     </div>
                     ${this.getQuizStatusHtml()}
                 </div>
@@ -4014,9 +4057,9 @@ export class StepikWebview implements vscode.Disposable {
         if (stepType === 'math') {
             return `
                 <div class="quiz-section">
-                    <label class="quiz-label" for="math-input">Формула</label>
-                    <textarea id="math-input" class="quiz-textarea formula-input" rows="2" spellcheck="false" placeholder="Например: (a+b)^2"></textarea>
-                    <div class="quiz-hint">Можно вводить обычную запись или LaTeX. Stepik проверит эквивалентность выражения.</div>
+                    <label class="quiz-label" for="math-input">${t('task.formulaLabel')}</label>
+                    <textarea id="math-input" class="quiz-textarea formula-input" rows="2" spellcheck="false" placeholder="${t('task.formulaPlaceholder')}"></textarea>
+                    <div class="quiz-hint">${t('task.formulaHint')}</div>
                     ${this.getQuizStatusHtml()}
                 </div>
             `;
@@ -4025,9 +4068,9 @@ export class StepikWebview implements vscode.Disposable {
         if (stepType === 'free-answer') {
             return `
                 <div class="quiz-section">
-                    <label class="quiz-label" for="free-answer-input">Развёрнутый ответ</label>
-                    <textarea id="free-answer-input" class="quiz-textarea" rows="7" placeholder="Напишите ответ…"></textarea>
-                    <div class="quiz-hint">Ответ отправляется как текст${dataset.is_html_enabled ? '; можно использовать HTML-разметку' : ''}. Вложения в расширении не поддерживаются.</div>
+                    <label class="quiz-label" for="free-answer-input">${t('task.freeAnswerLabel')}</label>
+                    <textarea id="free-answer-input" class="quiz-textarea" rows="7" placeholder="${t('task.freeAnswerPlaceholder')}"></textarea>
+                    <div class="quiz-hint">${dataset.is_html_enabled ? t('task.freeAnswerHintHtml') : t('task.freeAnswerHint')}</div>
                     ${this.getQuizStatusHtml()}
                 </div>
             `;
@@ -4037,15 +4080,15 @@ export class StepikWebview implements vscode.Disposable {
             const options = dataset.options || [];
             return `
                 <div class="quiz-section">
-                    <div class="quiz-hint">Перетащите элементы или используйте стрелки, чтобы задать правильный порядок.</div>
+                    <div class="quiz-hint">${t('task.sortingHint')}</div>
                     <ul class="sorting-list" id="sorting-list">
                         ${options.map((option, index) => `
                             <li class="sorting-item" draggable="true" data-index="${index}">
                                 <span class="sorting-handle" aria-hidden="true">⠿</span>
                                 <span class="sorting-text">${this.getQuizContentHtml(option)}</span>
                                 <span class="sorting-controls">
-                                    <button type="button" class="icon-btn" data-move="up" title="Выше" aria-label="Выше">↑</button>
-                                    <button type="button" class="icon-btn" data-move="down" title="Ниже" aria-label="Ниже">↓</button>
+                                    <button type="button" class="icon-btn" data-move="up" title="${t('task.moveUp')}" aria-label="${t('task.moveUp')}">↑</button>
+                                    <button type="button" class="icon-btn" data-move="down" title="${t('task.moveDown')}" aria-label="${t('task.moveDown')}">↓</button>
                                 </span>
                             </li>
                         `).join('')}
@@ -4059,12 +4102,12 @@ export class StepikWebview implements vscode.Disposable {
             const pairs = dataset.pairs || [];
             return `
                 <div class="quiz-section">
-                    <div class="quiz-hint">Для каждого элемента слева выберите соответствующий элемент справа.</div>
+                    <div class="quiz-hint">${t('task.matchingHint')}</div>
                     <div class="matching-list">
                         ${pairs.map((pair, index) => `
                             <div class="matching-row">
                                 <div class="matching-left">${this.getQuizContentHtml(pair.first)}</div>
-                                <select class="matching-select" data-left-index="${index}" aria-label="Сопоставление для ${this.escapeHtml(this.htmlToText(pair.first))}">
+                                <select class="matching-select" data-left-index="${index}" aria-label="${this.escapeHtml(t('task.matchingAria', { item: this.htmlToText(pair.first) }))}">
                                     ${pairs.map((candidate, candidateIndex) => `
                                         <option value="${candidateIndex}" ${candidateIndex === index ? 'selected' : ''}>${this.escapeHtml(this.htmlToText(candidate.second) || '—')}</option>
                                     `).join('')}
@@ -4126,13 +4169,13 @@ export class StepikWebview implements vscode.Disposable {
                 const currentIndex = blankIndex++;
                 if (component.type === 'select') {
                     const options = component.options || [];
-                    return `<select class="blank-select" data-blank-index="${currentIndex}" aria-label="Пропуск ${currentIndex + 1}">
-                        <option value="">— выберите —</option>
+                    return `<select class="blank-select" data-blank-index="${currentIndex}" aria-label="${t('task.blankAria', { number: currentIndex + 1 })}">
+                        <option value="">${t('task.blankChoose')}</option>
                         ${options.map(option => `<option value="${this.escapeHtml(option)}">${this.escapeHtml(this.htmlToText(option))}</option>`).join('')}
                     </select>`;
                 }
 
-                return `<input type="text" class="blank-input" data-blank-index="${currentIndex}" autocomplete="off" aria-label="Пропуск ${currentIndex + 1}">`;
+                return `<input type="text" class="blank-input" data-blank-index="${currentIndex}" autocomplete="off" aria-label="${t('task.blankAria', { number: currentIndex + 1 })}">`;
             });
             return `
                 <div class="quiz-section">
@@ -4145,7 +4188,7 @@ export class StepikWebview implements vscode.Disposable {
         if (stepType === 'sql') {
             return `
                 <div class="quiz-section">
-                    <label class="quiz-label" for="sql-input">SQL-запрос</label>
+                    <label class="quiz-label" for="sql-input">${t('task.sqlLabel')}</label>
                     <textarea id="sql-input" class="quiz-textarea code-input" rows="8" spellcheck="false" placeholder="SELECT ..."></textarea>
                     ${this.getQuizStatusHtml()}
                 </div>
@@ -4166,7 +4209,7 @@ export class StepikWebview implements vscode.Disposable {
                     </div>
                     ${checklist.length > 0 ? `
                         <div class="html-checklist">
-                            <div class="quiz-hint">Что проверяется:</div>
+                            <div class="quiz-hint">${t('task.whatChecked')}</div>
                             <ul>${checklist.map(item => `<li>${this.escapeHtml(item.name || '')}</li>`).join('')}</ul>
                         </div>
                     ` : ''}
@@ -4180,18 +4223,18 @@ export class StepikWebview implements vscode.Disposable {
             if (this.currentDatasetFile !== undefined) {
                 fileHtml = `<pre class="dataset-file">${this.escapeHtml(this.currentDatasetFile)}</pre>`;
             } else if (this.currentDatasetFileError) {
-                fileHtml = `<div class="quiz-error">Не удалось загрузить файл данных: ${this.escapeHtml(this.currentDatasetFileError)}</div>`;
+                fileHtml = `<div class="quiz-error">${t('task.datasetLoadError', { detail: this.escapeHtml(this.currentDatasetFileError) })}</div>`;
             } else {
-                fileHtml = `<div class="quiz-hint">Файл данных загружается…</div>`;
+                fileHtml = `<div class="quiz-hint">${t('task.datasetLoading')}</div>`;
             }
 
             return `
                 <div class="quiz-section">
-                    <div class="dataset-header">Данные для этой попытки:</div>
+                    <div class="dataset-header">${t('task.datasetHeader')}</div>
                     ${fileHtml}
-                    <label class="quiz-label" for="dataset-input">Решение (содержимое файла)</label>
-                    <textarea id="dataset-input" class="quiz-textarea code-input" rows="12" spellcheck="false" placeholder="Вставьте код решения…"></textarea>
-                    <div class="quiz-hint">Stepik проверяет этот текст как отправленный файл решения.</div>
+                    <label class="quiz-label" for="dataset-input">${t('task.datasetSolutionLabel')}</label>
+                    <textarea id="dataset-input" class="quiz-textarea code-input" rows="12" spellcheck="false" placeholder="${t('task.datasetPlaceholder')}"></textarea>
+                    <div class="quiz-hint">${t('task.datasetHint')}</div>
                     ${this.getQuizStatusHtml()}
                 </div>
             `;
@@ -4201,18 +4244,18 @@ export class StepikWebview implements vscode.Disposable {
             const template = dataset.template || [];
             return `
                 <div class="quiz-section">
-                    <div class="quiz-hint">Заполните части химической формулы.</div>
+                    <div class="quiz-hint">${t('task.chemicalHint')}</div>
                     <div class="chemical-slots">
                         ${template.map((slotType, index) => `
                             <div class="chemical-slot" data-slot-index="${index}" data-slot-type="${this.escapeHtml(slotType)}">
                                 ${slotType === 'normal' || slotType === 'subsup' ? `
-                                    <label>Обычный<input type="text" data-slot-part="normal" autocomplete="off"></label>
+                                    <label>${t('task.partNormal')}<input type="text" data-slot-part="normal" autocomplete="off"></label>
                                 ` : ''}
                                 ${slotType === 'sub' || slotType === 'subsup' ? `
-                                    <label>Нижний индекс<input type="text" data-slot-part="sub" autocomplete="off"></label>
+                                    <label>${t('task.partSub')}<input type="text" data-slot-part="sub" autocomplete="off"></label>
                                 ` : ''}
                                 ${slotType === 'sup' || slotType === 'subsup' ? `
-                                    <label>Верхний индекс<input type="text" data-slot-part="sup" autocomplete="off"></label>
+                                    <label>${t('task.partSup')}<input type="text" data-slot-part="sup" autocomplete="off"></label>
                                 ` : ''}
                             </div>
                         `).join('')}
@@ -4225,10 +4268,10 @@ export class StepikWebview implements vscode.Disposable {
         if (stepType === 'puzzle') {
             return `
                 <div class="quiz-section">
-                    ${dataset.image_src ? `<img class="puzzle-image" src="${this.escapeHtml(String(dataset.image_src))}" alt="Пазл">` : ''}
+                    ${dataset.image_src ? `<img class="puzzle-image" src="${this.escapeHtml(String(dataset.image_src))}" alt="${t('task.puzzleAlt')}">` : ''}
                     <label class="quiz-option">
                         <input type="checkbox" id="puzzle-solved">
-                        <span>Пазл собран</span>
+                        <span>${t('task.puzzleSolved')}</span>
                     </label>
                     ${this.getQuizStatusHtml()}
                 </div>
@@ -4297,14 +4340,14 @@ export class StepikWebview implements vscode.Disposable {
 
         if (sources.length === 0) {
             const reason = video && video.status && video.status !== 'ready'
-                ? 'Видео ещё обрабатывается на Stepik.'
-                : 'Для этого задания Stepik не вернул ссылки на видео.';
+                ? t('task.videoProcessing')
+                : t('task.videoNoSources');
             return `
                 <div class="video-section">
-                    ${poster ? `<img class="video-fallback-image" src="${this.escapeHtml(poster)}" alt="Превью видео">` : ''}
+                    ${poster ? `<img class="video-fallback-image" src="${this.escapeHtml(poster)}" alt="${t('task.videoPreviewAlt')}">` : ''}
                     <div class="video-unavailable">
                         <p>${this.escapeHtml(reason)}</p>
-                        <a href="${this.escapeHtml(stepUrl)}">Открыть шаг на Stepik ↗</a>
+                        <a href="${this.escapeHtml(stepUrl)}">${t('task.openStepOnStepik')}</a>
                     </div>
                 </div>
             `;
@@ -4327,7 +4370,7 @@ export class StepikWebview implements vscode.Disposable {
         const qualitySelector = sources.length > 1
             ? `
                 <label class="video-quality-label">
-                    Качество
+                    ${t('task.quality')}
                     <select id="video-quality">
                         ${sources.map((source, index) => `
                             <option value="${this.escapeHtml(source.quality)}"${index === 0 ? ' selected' : ''}>${this.escapeHtml(this.videoQualityLabel(source.quality))}</option>
@@ -4338,10 +4381,10 @@ export class StepikWebview implements vscode.Disposable {
             : '';
 
         const originalLink = originalUrl
-            ? `<a class="video-source-link" href="${this.escapeHtml(originalUrl)}">Оригинал видео ↗</a>`
+            ? `<a class="video-source-link" href="${this.escapeHtml(originalUrl)}">${t('task.originalVideo')}</a>`
             : '';
         const browserButton = sources[0]
-            ? `<button id="video-open-browser" class="video-action-btn" type="button" data-video-url="${this.escapeHtml(sources[0].url)}">Открыть в браузере ↗</button>`
+            ? `<button id="video-open-browser" class="video-action-btn" type="button" data-video-url="${this.escapeHtml(sources[0].url)}">${t('task.openInBrowser')}</button>`
             : '';
 
         return `
@@ -4350,17 +4393,17 @@ export class StepikWebview implements vscode.Disposable {
                     <video id="stepik-video" controls preload="metadata" playsinline${poster ? ` poster="${this.escapeHtml(poster)}"` : ''}>
                         ${sourceTags}
                         ${trackTags}
-                        Ваш браузер не поддерживает воспроизведение видео.
+                        ${t('task.videoUnsupported')}
                     </video>
                     <audio id="stepik-video-audio" preload="auto"></audio>
                 </div>
                 <div class="video-toolbar">
                     ${duration ? `<span class="video-duration">${this.escapeHtml(duration)}</span>` : ''}
                     ${qualitySelector}
-                    <span id="video-audio-status" class="video-status" role="status" aria-live="polite">Звук: подготовка…</span>
+                    <span id="video-audio-status" class="video-status" role="status" aria-live="polite">${t('task.audioPreparing')}</span>
                     <span id="video-status" class="video-status" role="status" aria-live="polite"></span>
-                    <button id="video-audio-enable" class="video-action-btn" type="button" hidden>Включить звук</button>
-                    <button id="video-fullscreen" class="video-action-btn" type="button">⛶ На весь экран</button>
+                    <button id="video-audio-enable" class="video-action-btn" type="button" hidden>${t('task.enableAudio')}</button>
+                    <button id="video-fullscreen" class="video-action-btn" type="button">${t('task.fullscreen')}</button>
                     ${browserButton}
                     ${originalLink}
                 </div>
@@ -4391,7 +4434,7 @@ export class StepikWebview implements vscode.Disposable {
     }
 
     private videoQualityLabel(quality: string): string {
-        return /^\d+$/.test(quality) ? `${quality}p` : (quality || 'Видео');
+        return /^\d+$/.test(quality) ? `${quality}p` : (quality || t('task.videoFallback'));
     }
 
     private formatVideoDuration(seconds: number): string {
@@ -4410,8 +4453,8 @@ export class StepikWebview implements vscode.Disposable {
         if (this.commentsError) {
             content = `
                 <div class="comments-error">
-                    <div>Не удалось загрузить комментарии: ${this.escapeHtml(this.commentsError)}</div>
-                    <button id="reload-comments" class="secondary">Повторить</button>
+                    <div>${t('task.commentsLoadError', { detail: this.escapeHtml(this.commentsError) })}</div>
+                    <button id="reload-comments" class="secondary">${t('task.retry')}</button>
                 </div>
             `;
         } else {
@@ -4430,18 +4473,18 @@ export class StepikWebview implements vscode.Disposable {
         return `
             <div class="comments-section" id="comments-section">
                 <div class="discussion-header" id="discussion-header">
-                    <div class="discussion-tabs" role="tablist" aria-label="Обсуждение шага">
-                        <button id="tab-comments" class="discussion-tab active" data-view="comments" role="tab" aria-selected="true" title="Посмотреть комментарии">
-                            Комментарии <span class="comments-count" id="comments-count">${this.getCommentCount()}</span>
+                    <div class="discussion-tabs" role="tablist" aria-label="${t('task.discussionAria')}">
+                        <button id="tab-comments" class="discussion-tab active" data-view="comments" role="tab" aria-selected="true" title="${t('task.commentsTabTitle')}">
+                            ${t('task.comments')} <span class="comments-count" id="comments-count">${this.getCommentCount()}</span>
                         </button>
                         ${quizStep ? `
-                            <button id="tab-solutions" class="discussion-tab" data-view="solutions" role="tab" aria-selected="false" title="Посмотреть решения">
-                                Решения <span class="comments-count" id="solutions-count"${solutionsAvailable ? '' : ' style="display:none"'}>${solutionsCount}</span><span class="solutions-lock-icon" id="solutions-lock-icon"${solutionsAvailable ? ' style="display:none"' : ''} title="Решения пока недоступны">🔒</span>
+                            <button id="tab-solutions" class="discussion-tab" data-view="solutions" role="tab" aria-selected="false" title="${t('task.solutionsTabTitle')}">
+                                ${t('task.solutions')} <span class="comments-count" id="solutions-count"${solutionsAvailable ? '' : ' style="display:none"'}>${solutionsCount}</span><span class="solutions-lock-icon" id="solutions-lock-icon"${solutionsAvailable ? ' style="display:none"' : ''} title="${t('task.solutionsUnavailable')}">🔒</span>
                             </button>
                         ` : ''}
                     </div>
                     <label class="comments-sort-label" id="comments-sort-wrapper">
-                        Сортировка:
+                        ${t('task.sortingLabel')}
                         <select id="comment-sort">
                             ${this.getCommentSortOptionsHtml(this.commentSort)}
                         </select>
@@ -4449,16 +4492,16 @@ export class StepikWebview implements vscode.Disposable {
                 </div>
                 <div class="discussion-panel" id="comments-panel" role="tabpanel">
                     <div class="comment-composer" id="comment-composer">
-                        <div id="new-comment-editor" class="comment-rich-host" data-stepik-rich-editor data-placeholder="Написать комментарий…"></div>
-                        <div class="composer-hint">Предпросмотр работает по умолчанию; режим Markdown доступен на панели редактора. Поддерживаются формулы, изображения и блоки кода.</div>
+                        <div id="new-comment-editor" class="comment-rich-host" data-stepik-rich-editor data-placeholder="${t('task.commentPlaceholder')}"></div>
+                        <div class="composer-hint">${t('task.composerHint')}</div>
                         <div class="composer-actions">
-                            <button id="post-comment-btn" disabled>Отправить</button>
+                            <button id="post-comment-btn" disabled>${t('task.submit')}</button>
                             <span id="composer-status" class="composer-status"></span>
                         </div>
                     </div>
                     ${content}
                     <div class="comments-actions">
-                        <button id="load-more-comments" class="secondary"${loadMoreVisible ? '' : ' style="display:none"'}>Показать ещё комментарии</button>
+                        <button id="load-more-comments" class="secondary"${loadMoreVisible ? '' : ' style="display:none"'}>${t('task.showMoreComments')}</button>
                         <span id="comments-status" class="comments-status"></span>
                     </div>
                     <div id="comments-sentinel" class="comments-sentinel" aria-hidden="true"></div>
@@ -4467,29 +4510,29 @@ export class StepikWebview implements vscode.Disposable {
                     <div class="discussion-panel" id="solutions-panel" role="tabpanel" style="display:none">
                         <div class="solutions-locked" id="solutions-locked"${solutionsAvailable ? ' style="display:none"' : ''}>
                             <div class="solutions-locked-text" id="solutions-locked-text">${this.escapeHtml(this.getSolutionsLockedMessage())}</div>
-                            <button id="recheck-solutions" class="secondary">Проверить снова</button>
+                            <button id="recheck-solutions" class="secondary">${t('task.recheckSolutions')}</button>
                         </div>
                         <div class="solutions-status" id="solutions-status"></div>
                         <div id="solutions-unlocked"${solutionsAvailable ? '' : ' style="display:none"'}>
                             <div class="comment-composer" id="solution-composer">
                                 <label class="solution-submission-label" for="solution-submission">
-                                    Мое решение:
+                                    ${t('task.mySolution')}
                                     <select id="solution-submission"${this.solutionSubmissions.length ? '' : ' disabled'}>
                                         ${this.getSolutionSubmissionOptionsHtml()}
                                     </select>
                                 </label>
                                 ${this.getSolutionSubmissionHintHtml()}
-                                <div id="new-solution-editor" class="comment-rich-host" data-stepik-rich-editor data-placeholder="Написать решение…" data-disabled data-compact></div>
-                                <div class="composer-hint">Предпросмотр работает по умолчанию; режим Markdown доступен на панели редактора. Поддерживаются формулы, изображения и блоки кода.</div>
+                                <div id="new-solution-editor" class="comment-rich-host" data-stepik-rich-editor data-placeholder="${t('task.solutionPlaceholder')}" data-disabled data-compact></div>
+                                <div class="composer-hint">${t('task.composerHint')}</div>
                                 <div class="composer-actions">
-                                    <button id="post-solution-btn" disabled>Отправить</button>
+                                    <button id="post-solution-btn" disabled>${t('task.submit')}</button>
                                     <span id="solution-composer-status" class="composer-status"></span>
                                 </div>
                             </div>
                             <div class="solutions-content" id="solutions-content"></div>
                             <div class="comments-actions">
-                                <button id="load-more-solutions" class="secondary" style="display:none">Показать ещё решения</button>
-                                <button id="retry-solutions" class="secondary" style="display:none">Повторить загрузку</button>
+                                <button id="load-more-solutions" class="secondary" style="display:none">${t('task.showMoreSolutions')}</button>
+                                <button id="retry-solutions" class="secondary" style="display:none">${t('task.retrySolutions')}</button>
                             </div>
                             <div id="solutions-sentinel" class="comments-sentinel" aria-hidden="true"></div>
                         </div>
@@ -4507,29 +4550,26 @@ export class StepikWebview implements vscode.Disposable {
     private getSolutionsLockedMessage(): string {
         const step = this.currentStep?.step;
         if (!step) {
-            return 'Решения пока недоступны.';
+            return t('task.solutionsLockedNone');
         }
         const attempts = step.solutions_unlocked_attempts || 0;
         if (step.is_solutions_unlocked && attempts > 0) {
             const mod10 = attempts % 10;
             const mod100 = attempts % 100;
-            const word =
-                mod10 === 1 && mod100 !== 11
-                    ? 'попытки'
-                    : 'попыток';
-            return `Решения откроются после ${attempts} ${word}.`;
+            const word = pluralize(attempts, 'task.attemptForms');
+            return t('task.solutionsLockedAttempts', { attempts, word });
         }
-        return 'Решения откроются после правильного ответа.';
+        return t('task.solutionsLockedCorrect');
     }
 
     private getCommentSortOptionsHtml(sort: CommentSort = this.commentSort): string {
         const options: Array<[CommentSort, string]> = [
-            ['new', 'Сначала новые'],
-            ['discussed', 'Сначала самые обсуждаемые'],
-            ['popular', 'Сначала популярные'],
-            ['recent', 'Сначала самые свежие обновления'],
-            ['teacher', 'Сначала ответы преподавателя'],
-            ['mine', 'Мои комментарии']
+            ['new', t('task.sortNew')],
+            ['discussed', t('task.sortDiscussed')],
+            ['popular', t('task.sortPopular')],
+            ['recent', t('task.sortRecent')],
+            ['teacher', t('task.sortTeacher')],
+            ['mine', t('task.sortMine')]
         ];
 
         return options
@@ -4548,7 +4588,7 @@ export class StepikWebview implements vscode.Disposable {
 
     private getSolutionSubmissionOptionsHtml(): string {
         if (this.solutionSubmissions.length === 0) {
-            return '<option value="">Нет отправленных решений</option>';
+            return `<option value="">${t('task.noSubmittedSolutions')}</option>`;
         }
 
         const selected = this.getDefaultSolutionSubmission();
@@ -4569,10 +4609,10 @@ export class StepikWebview implements vscode.Disposable {
 
     private getSolutionSubmissionHint(): string {
         if (this.solutionSubmissionsError) {
-            return `Не удалось загрузить ваши решения: ${this.solutionSubmissionsError}`;
+            return t('task.solutionSubmissionsLoadError', { detail: this.solutionSubmissionsError });
         }
         if (this.solutionSubmissions.length === 0) {
-            return 'Нет отправленных решений — сначала отправьте решение на проверку.';
+            return t('task.noSubmittedSolutionsHint');
         }
         return '';
     }
@@ -4587,27 +4627,27 @@ export class StepikWebview implements vscode.Disposable {
     private getSubmissionStatusLabel(status: string): string {
         switch ((status || '').toLowerCase()) {
             case 'correct':
-                return 'верно';
+                return t('task.statusCorrect');
             case 'wrong':
-                return 'неверно';
+                return t('task.statusWrong');
             case 'evaluation':
-                return 'на проверке';
+                return t('task.statusEvaluation');
             case 'pending':
-                return 'ожидает проверки';
+                return t('task.statusPending');
             case 'running':
-                return 'выполняется';
+                return t('task.statusRunning');
             case 'compilation_error':
-                return 'ошибка компиляции';
+                return t('task.statusCompilationError');
             case 'runtime_error':
-                return 'ошибка выполнения';
+                return t('task.statusRuntimeError');
             case 'time_limit_exceeded':
-                return 'превышено время';
+                return t('task.statusTimeLimit');
             case 'memory_limit_exceeded':
-                return 'превышена память';
+                return t('task.statusMemoryLimit');
             case 'rejected':
-                return 'отклонено';
+                return t('task.statusRejected');
             default:
-                return status || 'неизвестно';
+                return status || t('task.statusUnknown');
         }
     }
 
@@ -4627,10 +4667,10 @@ export class StepikWebview implements vscode.Disposable {
 
     private renderCommentBodyHtml(comment: StepikComment): string {
         if (comment.is_deleted) {
-            return '<em class="comment-deleted">Комментарий удалён</em>';
+            return `<em class="comment-deleted">${t('task.commentDeleted')}</em>`;
         }
         if (comment.is_banned) {
-            return '<em class="comment-deleted">Комментарий скрыт</em>';
+            return `<em class="comment-deleted">${t('task.commentHidden')}</em>`;
         }
         const submission = comment.submission
             ? this.commentSubmissions.get(comment.submission)
@@ -4643,10 +4683,10 @@ export class StepikWebview implements vscode.Disposable {
     }
 
     private getCommentHtml(comment: StepikComment, user: CommentUser | undefined): string {
-        const authorName = user?.full_name?.trim() || `Пользователь #${comment.user}`;
+        const authorName = user?.full_name?.trim() || t('task.userFallback', { id: comment.user });
         const roleBadge = this.getCommentRoleBadge(comment.user_role);
         const pinnedBadge = comment.is_pinned
-            ? '<span class="comment-flag pin">Закреплён</span>'
+            ? `<span class="comment-flag pin">${t('task.pinned')}</span>`
             : '';
 
         const isTeacher = (comment.user_role || '').toLowerCase() === 'teacher';
@@ -4654,16 +4694,16 @@ export class StepikWebview implements vscode.Disposable {
             comment.is_staff_replied || this.teacherRepliedParents.has(comment.id)
         );
         const teacherRepliedBadge = comment.parent === null && teacherReplied
-            ? '<span class="comment-flag teacher-reply">Преподаватель ответил</span>'
+            ? `<span class="comment-flag teacher-reply">${t('task.teacherReplied')}</span>`
             : '';
         const teacherCommentBadge = isTeacher
-            ? '<span class="comment-flag teacher-comment">Ответ преподавателя</span>'
+            ? `<span class="comment-flag teacher-comment">${t('task.teacherComment')}</span>`
             : '';
         const solutionBadge = comment.thread === 'solutions'
-            ? '<span class="comment-flag solution">Решение</span>'
+            ? `<span class="comment-flag solution">${t('task.solutionFlag')}</span>`
             : '';
         const replyBadge = this.commentSort === 'mine' && comment.parent !== null
-            ? '<span class="comment-flag reply">Ответ на комментарий</span>'
+            ? `<span class="comment-flag reply">${t('task.replyFlag')}</span>`
             : '';
 
         const classes = ['comment'];
@@ -4689,11 +4729,11 @@ export class StepikWebview implements vscode.Disposable {
 
         const canReply = !comment.is_deleted && !comment.is_banned;
         const repliesButton = comment.parent === null && comment.reply_count > 0
-            ? `<button type="button" class="replies-btn" data-comment-id="${comment.id}" data-total="${comment.reply_count}">Показать ответы (${comment.reply_count})</button>`
+            ? `<button type="button" class="replies-btn" data-comment-id="${comment.id}" data-total="${comment.reply_count}">${t('task.showRepliesCount', { count: comment.reply_count })}</button>`
             : '';
         const replyTarget = comment.parent ?? comment.id;
         const replyButton = canReply
-            ? `<button type="button" class="reply-btn" data-comment-id="${comment.id}" data-parent-id="${replyTarget}">Ответить</button>`
+            ? `<button type="button" class="reply-btn" data-comment-id="${comment.id}" data-parent-id="${replyTarget}">${t('task.reply')}</button>`
             : '';
         const isMine = this.currentUserId !== undefined && comment.user === this.currentUserId;
         const canModify =
@@ -4705,13 +4745,13 @@ export class StepikWebview implements vscode.Disposable {
             comment.can_delete !== false &&
             (comment.can_delete === true || isMine);
         const editButton = canModify
-            ? `<button type="button" class="comment-action-btn edit-comment-btn" data-comment-id="${comment.id}">Изменить</button>`
+            ? `<button type="button" class="comment-action-btn edit-comment-btn" data-comment-id="${comment.id}">${t('task.edit')}</button>`
             : '';
         const deleteButton = canDelete
-            ? `<button type="button" class="comment-action-btn delete-comment-btn" data-comment-id="${comment.id}">Удалить</button>`
+            ? `<button type="button" class="comment-action-btn delete-comment-btn" data-comment-id="${comment.id}">${t('task.delete')}</button>`
             : '';
         const copyLinkButton = canReply
-            ? `<button type="button" class="comment-action-btn copy-comment-link-btn" data-comment-id="${comment.id}" data-parent-id="${comment.parent ?? ''}">Ссылка</button>`
+            ? `<button type="button" class="comment-action-btn copy-comment-link-btn" data-comment-id="${comment.id}" data-parent-id="${comment.parent ?? ''}">${t('task.link')}</button>`
             : '';
 
         const voteId = this.commentVoteIds.get(comment.id);
@@ -4732,12 +4772,12 @@ export class StepikWebview implements vscode.Disposable {
             '<span class="ui-like__icon" aria-hidden="true"><svg viewBox="0 0 20 20" xmlns="http://www.w3.org/2000/svg"><path d="M20 9.503c0 .415 0 1.276-.555 1.605.124.272.12.623.114.991l-.001.235c0 .773-.321 1.37-.825 1.617.126.276.123.634.12 1.01l-.001.292c.004.457-.156.885-.45 1.203a1.54 1.54 0 01-.376.298c.255.385.265.95.27 1.227.008.45-.151.877-.449 1.203-.3.327-.717.517-1.145.517l-3.743-.002h-.01c-.005.002-.01.002-.015.002H8.023a1.65 1.65 0 00-.132.006 2.077 2.077 0 01-.178.008.858.858 0 01-.254-.034 1.483 1.483 0 01-.404-.22h-.001l-.084-.057c-.179-.119-.353-.245-.527-.37l-.141-.103a.535.535 0 00-.313-.1h-.49V9.984l.538-.362c.258-.173.42-.473.591-.789l.775-1.4C7.93 6.483 8.46 5.53 8.99 4.58l.022-.041a.22.22 0 00.015-.033c.003-.012.003-.052.003-.076l-.003-3.08c0-.399.312-.715.618-.973A1.53 1.53 0 0111.222.11c.435.169.98.467 1.096.932.144.57.288 1.141.422 1.715l.057.236c.086.359.175.73.212 1.11.053.549-.467 2.777-.775 3.774l6.388-.011c.836 0 1.378.643 1.378 1.637zm-20 .976c0-.74.589-1.342 1.313-1.342h2.873c.288 0 .552.099.768.26v10.346a1.28 1.28 0 01-.768.257H1.313C.589 20 0 19.399 0 18.659v-8.18z" fill="currentColor" fill-rule="evenodd"></path></svg></span>';
         const voteControls = canVote
             ? `<span class="comment-vote ui-vote" data-comment-id="${comment.id}" data-current-vote="${currentVote || ''}" data-epic-count="${epicCount}" data-abuse-count="${abuseCount}">
-                    <button type="button" class="ui-like ui-vote__like vote-btn vote-up${currentVote === 'epic' ? ' active' : ''}" data-comment-id="${comment.id}" data-vote="epic" data-type="like"${currentVote === 'epic' ? ' data-is-active' : ''} aria-pressed="${currentVote === 'epic' ? 'true' : 'false'}" aria-label="Одобряю!" title="Одобряю!">${voteThumbIcon}<span class="ui-like__count vote-count vote-up-count">${epicCount}</span></button>
-                    <button type="button" class="ui-like ui-vote__like vote-btn vote-down${currentVote === 'abuse' ? ' active' : ''}" data-comment-id="${comment.id}" data-vote="abuse" data-type="dislike"${currentVote === 'abuse' ? ' data-is-active' : ''} aria-pressed="${currentVote === 'abuse' ? 'true' : 'false'}" aria-label="Не нравится" title="Не нравится">${voteThumbIcon}<span class="ui-like__count vote-count vote-down-count">${abuseCount}</span></button>
+                    <button type="button" class="ui-like ui-vote__like vote-btn vote-up${currentVote === 'epic' ? ' active' : ''}" data-comment-id="${comment.id}" data-vote="epic" data-type="like"${currentVote === 'epic' ? ' data-is-active' : ''} aria-pressed="${currentVote === 'epic' ? 'true' : 'false'}" aria-label="${t('task.like')}" title="${t('task.like')}">${voteThumbIcon}<span class="ui-like__count vote-count vote-up-count">${epicCount}</span></button>
+                    <button type="button" class="ui-like ui-vote__like vote-btn vote-down${currentVote === 'abuse' ? ' active' : ''}" data-comment-id="${comment.id}" data-vote="abuse" data-type="dislike"${currentVote === 'abuse' ? ' data-is-active' : ''} aria-pressed="${currentVote === 'abuse' ? 'true' : 'false'}" aria-label="${t('task.dislike')}" title="${t('task.dislike')}">${voteThumbIcon}<span class="ui-like__count vote-count vote-down-count">${abuseCount}</span></button>
                     <span class="vote-status" aria-live="polite"></span>
                 </span>`
             : showVoteStats
-                ? `<span class="comment-vote comment-vote-static ui-vote" title="${isMine ? 'Нельзя голосовать за свой комментарий' : 'Голоса за комментарий'}">
+                ? `<span class="comment-vote comment-vote-static ui-vote" title="${isMine ? t('task.voteOwn') : t('task.voteCount')}">
                     <span class="ui-like ui-vote__like" data-is-inactive data-type="like">${voteThumbIcon}<span class="ui-like__count vote-count vote-up-count">${epicCount}</span></span>
                     <span class="ui-like ui-vote__like" data-is-inactive data-type="dislike">${voteThumbIcon}<span class="ui-like__count vote-count vote-down-count">${abuseCount}</span></span>
                 </span>`
@@ -4801,7 +4841,7 @@ export class StepikWebview implements vscode.Disposable {
             }
 
             const language = (reply.language || '').trim();
-            const label = language ? `Код решения · ${language}` : 'Код решения';
+            const label = language ? `${t('task.codeSolution')} · ${language}` : t('task.codeSolution');
             return this.wrapCommentSubmission(
                 label,
                 this.renderSubmissionCode(code, language || fallbackLanguage)
@@ -4932,7 +4972,7 @@ export class StepikWebview implements vscode.Disposable {
             return '';
         }
         return this.wrapCommentSubmission(
-            'Ответ',
+            t('task.answer'),
             `<div class="comment-submission-text">${this.escapeHtml(text)}</div>`
         );
     }
@@ -4948,8 +4988,8 @@ export class StepikWebview implements vscode.Disposable {
 
         if (!text.trim()) {
             return this.wrapCommentSubmission(
-                'Ответ',
-                `<div class="comment-submission-empty">Ответ отправлен с вложениями (${attachments}).</div>`
+                t('task.answer'),
+                `<div class="comment-submission-empty">${t('task.attachmentsOnly', { count: attachments })}</div>`
             );
         }
 
@@ -4957,7 +4997,7 @@ export class StepikWebview implements vscode.Disposable {
         // comments do before putting the answer into the webview.
         const content = this.getSubmissionContentHtml(text);
         return this.wrapCommentSubmission(
-            'Ответ',
+            t('task.answer'),
             `<div class="comment-submission-text">${content}</div>`
         );
     }
@@ -4972,7 +5012,7 @@ export class StepikWebview implements vscode.Disposable {
             ? this.renderMathInHtml(this.escapeHtml(source))
             : this.renderMathInHtml(`$$${this.escapeHtml(source)}$$`);
         return this.wrapCommentSubmission(
-            'Формула',
+            t('task.formula'),
             `<div class="comment-submission-formula">${content}</div>`
         );
     }
@@ -4989,8 +5029,8 @@ export class StepikWebview implements vscode.Disposable {
             .filter(index => index >= 0);
         if (selected.length === 0) {
             return this.wrapCommentSubmission(
-                'Выбранные варианты',
-                '<div class="comment-submission-empty">Варианты не выбраны.</div>'
+                t('task.selectedOptions'),
+                `<div class="comment-submission-empty">${t('task.noOptionsSelected')}</div>`
             );
         }
 
@@ -4999,12 +5039,12 @@ export class StepikWebview implements vscode.Disposable {
             const option = options[index];
             const content = typeof option === 'string' && option.trim()
                 ? this.getSubmissionContentHtml(option)
-                : `Вариант ${index + 1}`;
+                : t('task.optionN', { number: index + 1 });
             return `<li>${content}</li>`;
         });
 
         return this.wrapCommentSubmission(
-            'Выбранные варианты',
+            t('task.selectedOptions'),
             `<ul class="comment-submission-list">${items.join('')}</ul>`
         );
     }
@@ -5020,12 +5060,12 @@ export class StepikWebview implements vscode.Disposable {
             const option = Number.isInteger(index) ? options[index] : undefined;
             const content = typeof option === 'string' && option.trim()
                 ? this.getSubmissionContentHtml(option)
-                : `Элемент ${Number.isInteger(index) ? index + 1 : position + 1}`;
+                : t('task.itemN', { number: Number.isInteger(index) ? index + 1 : position + 1 });
             return `<li>${content}</li>`;
         });
 
         return this.wrapCommentSubmission(
-            'Порядок элементов',
+            t('task.orderItemsLabel'),
             `<ol class="comment-submission-list">${items.join('')}</ol>`
         );
     }
@@ -5044,15 +5084,15 @@ export class StepikWebview implements vscode.Disposable {
                 : undefined;
             const leftText = typeof left === 'string' && left.trim()
                 ? this.getSubmissionContentHtml(left)
-                : `Элемент ${leftIndex + 1}`;
+                : t('task.itemN', { number: leftIndex + 1 });
             const rightText = typeof right === 'string' && right.trim()
                 ? this.getSubmissionContentHtml(right)
-                : `Элемент ${Number.isInteger(rightIndex) ? rightIndex + 1 : '—'}`;
+                : t('task.itemN', { number: Number.isInteger(rightIndex) ? rightIndex + 1 : '—' });
             return `<li><span class="comment-submission-pair-left">${leftText}</span><span class="comment-submission-pair-arrow" aria-hidden="true">→</span><span class="comment-submission-pair-right">${rightText}</span></li>`;
         });
 
         return this.wrapCommentSubmission(
-            'Сопоставление',
+            t('task.matchingLabel'),
             `<ul class="comment-submission-list comment-submission-pairs">${items.join('')}</ul>`
         );
     }
@@ -5062,8 +5102,8 @@ export class StepikWebview implements vscode.Disposable {
     ): string {
         if (!Array.isArray(choices) || choices.length === 0) {
             return this.wrapCommentSubmission(
-                'Таблица ответа',
-                '<div class="comment-submission-empty">Таблица не заполнена.</div>'
+                t('task.answerTable'),
+                `<div class="comment-submission-empty">${t('task.tableEmpty')}</div>`
             );
         }
 
@@ -5087,7 +5127,7 @@ export class StepikWebview implements vscode.Disposable {
             );
             for (let rowIndex = 0; rowIndex < rowCount; rowIndex++) {
                 rows.push({
-                    name_row: datasetRows[rowIndex] || `Строка ${rowIndex + 1}`,
+                    name_row: datasetRows[rowIndex] || t('task.rowN', { number: rowIndex + 1 }),
                     columns: datasetColumns.map((column, columnIndex) => ({
                         name: column,
                         answer: Boolean(flags[rowIndex * columnsCount + columnIndex])
@@ -5098,15 +5138,15 @@ export class StepikWebview implements vscode.Disposable {
 
         if (rows.length === 0) {
             return this.wrapCommentSubmission(
-                'Таблица ответа',
-                '<div class="comment-submission-empty">Таблица не заполнена.</div>'
+                t('task.answerTable'),
+                `<div class="comment-submission-empty">${t('task.tableEmpty')}</div>`
             );
         }
 
         const body = rows.map(row => {
             const rowName = typeof row.name_row === 'string' && row.name_row.trim()
                 ? this.getSubmissionContentHtml(row.name_row)
-                : 'Строка';
+                : t('task.row');
             const columns = (Array.isArray(row.columns) ? row.columns : [])
                 .filter(column => column && column.answer === true);
             const selected = columns.length > 0
@@ -5119,9 +5159,9 @@ export class StepikWebview implements vscode.Disposable {
         }).join('');
 
         return this.wrapCommentSubmission(
-            'Таблица ответа',
+            t('task.answerTable'),
             `<table class="comment-submission-table">
-                <thead><tr><th scope="col">Строка</th><th scope="col">Выбранные столбцы</th></tr></thead>
+                <thead><tr><th scope="col">${t('task.row')}</th><th scope="col">${t('task.selectedColumns')}</th></tr></thead>
                 <tbody>${body}</tbody>
             </table>`
         );
@@ -5133,8 +5173,8 @@ export class StepikWebview implements vscode.Disposable {
         }
         if (blanks.length === 0) {
             return this.wrapCommentSubmission(
-                'Заполненные пропуски',
-                '<div class="comment-submission-empty">Пропуски не заполнены.</div>'
+                t('task.filledBlanks'),
+                `<div class="comment-submission-empty">${t('task.blanksEmpty')}</div>`
             );
         }
 
@@ -5143,11 +5183,11 @@ export class StepikWebview implements vscode.Disposable {
             const content = text
                 ? this.escapeHtml(text)
                 : '<span class="comment-submission-empty">—</span>';
-            return `<li><span class="comment-submission-label">Пропуск ${index + 1}:</span> ${content}</li>`;
+            return `<li><span class="comment-submission-label">${t('task.blankN', { number: index + 1 })}</span> ${content}</li>`;
         });
 
         return this.wrapCommentSubmission(
-            'Заполненные пропуски',
+            t('task.filledBlanks'),
             `<ul class="comment-submission-list">${items.join('')}</ul>`
         );
     }
@@ -5157,7 +5197,7 @@ export class StepikWebview implements vscode.Disposable {
             return '';
         }
         return this.wrapCommentSubmission(
-            'SQL-запрос',
+            t('task.sqlQuery'),
             this.renderSubmissionCode(code, 'sql')
         );
     }
@@ -5183,7 +5223,7 @@ export class StepikWebview implements vscode.Disposable {
             return '';
         }
 
-        return this.wrapCommentSubmission('Код решения', parts.join(''));
+        return this.wrapCommentSubmission(t('task.codeSolution'), parts.join(''));
     }
 
     private renderSubmissionDataset(file: unknown): string {
@@ -5191,7 +5231,7 @@ export class StepikWebview implements vscode.Disposable {
             return '';
         }
         return this.wrapCommentSubmission(
-            'Файл решения',
+            t('task.solutionFile'),
             this.renderSubmissionCode(file, 'plaintext')
         );
     }
@@ -5220,7 +5260,7 @@ export class StepikWebview implements vscode.Disposable {
         }
 
         return this.wrapCommentSubmission(
-            'Формула',
+            t('task.formula'),
             `<div class="comment-submission-formula comment-submission-chemical">${formula}</div>`
         );
     }
@@ -5230,8 +5270,8 @@ export class StepikWebview implements vscode.Disposable {
             return '';
         }
         return this.wrapCommentSubmission(
-            'Пазл',
-            `<div class="comment-submission-text">${solved ? 'Собран' : 'Не собран'}</div>`
+            t('task.puzzleLabel'),
+            `<div class="comment-submission-text">${solved ? t('task.solved') : t('task.notSolved')}</div>`
         );
     }
 
@@ -5250,7 +5290,7 @@ export class StepikWebview implements vscode.Disposable {
                 return '';
             }
             return this.wrapCommentSubmission(
-                'Ответ',
+                t('task.answer'),
                 `<pre class="comment-submission-json">${this.escapeHtml(json)}</pre>`
             );
         } catch {
@@ -5299,10 +5339,10 @@ export class StepikWebview implements vscode.Disposable {
     private getCommentRoleBadge(role: string): string {
         const normalized = (role || '').toLowerCase();
         const labels: { [key: string]: string } = {
-            teacher: 'Преподаватель',
-            staff: 'Команда Stepik',
-            admin: 'Администратор',
-            moderator: 'Модератор'
+            teacher: t('task.teacherRole'),
+            staff: t('task.staffRole'),
+            admin: t('task.adminRole'),
+            moderator: t('task.moderatorRole')
         };
         const label = labels[normalized];
         if (!label) {
@@ -5580,7 +5620,7 @@ export class StepikWebview implements vscode.Disposable {
             this.outputChannel.appendLine(
                 `[Comments] Не удалось преобразовать HTML в Markdown: ${detail}`
             );
-            throw new Error(`Не удалось преобразовать HTML в Markdown: ${detail}`);
+            throw new Error(t('task.markdownConvertError', { detail }));
         }
     }
 
@@ -5822,13 +5862,13 @@ export class StepikWebview implements vscode.Disposable {
             padding: 8px;
             box-sizing: border-box;
             border-radius: 4px;
-            background: #333;
-            color: #fff;
+            background: var(--sk-accent-strong, var(--vscode-button-background));
+            color: var(--sk-on-accent, var(--vscode-button-foreground));
             cursor: default;
             outline: none;
         }
         .progress-streak:focus-visible {
-            outline: 1px solid var(--vscode-focusBorder);
+            outline: 1px solid var(--sk-accent, var(--vscode-focusBorder));
             outline-offset: 4px;
         }
         .progress-streak-icon {
@@ -5838,7 +5878,8 @@ export class StepikWebview implements vscode.Disposable {
             height: 20px;
         }
         .progress-streak-count {
-            color: rgba(255, 255, 255, 0.75);
+            color: currentColor;
+            opacity: 0.78;
             font-size: 16px;
             font-weight: 400;
             line-height: 18px;
@@ -5877,7 +5918,7 @@ export class StepikWebview implements vscode.Disposable {
             width: 100%;
             height: 4px;
             border-radius: 2px;
-            background: #939393;
+            background: var(--sk-border-strong, var(--vscode-panel-border));
         }
         .progress-line-fill {
             position: absolute;
@@ -5885,7 +5926,7 @@ export class StepikWebview implements vscode.Disposable {
             left: 0;
             height: 100%;
             border-radius: 2px;
-            background: #66cc66;
+            background: var(--sk-accent, var(--vscode-charts-green));
         }
         .progress-line-marker {
             position: absolute;
@@ -5893,9 +5934,9 @@ export class StepikWebview implements vscode.Disposable {
             width: 13.5px;
             height: 13.5px;
             box-sizing: border-box;
-            border: 3.5px solid var(--vscode-editor-background);
+            border: 3.5px solid var(--sk-bg, var(--vscode-editor-background));
             border-radius: 50%;
-            background: #939393;
+            background: var(--sk-border-strong, var(--vscode-panel-border));
             transform: translate(-50%, -50%);
         }
         .progress-course:focus-visible {
@@ -5912,14 +5953,15 @@ export class StepikWebview implements vscode.Disposable {
             max-width: 330px;
             padding: 10px 12px;
             box-sizing: border-box;
-            border-radius: 4px;
-            background: #222;
-            color: #a8a8a8;
+            border: 1px solid var(--sk-border-strong, var(--vscode-panel-border));
+            border-radius: 8px;
+            background: var(--sk-surface, var(--vscode-editorWidget-background));
+            color: var(--sk-muted, var(--vscode-descriptionForeground));
             font-size: 12px;
             font-weight: 400;
             line-height: 1.6;
             letter-spacing: 0.4px;
-            box-shadow: 0 2px 7px rgba(0, 0, 0, 0.4);
+            box-shadow: var(--sk-shadow, 0 2px 7px rgba(0, 0, 0, 0.3));
             opacity: 0;
             visibility: hidden;
             pointer-events: none;
@@ -5928,11 +5970,11 @@ export class StepikWebview implements vscode.Disposable {
         .progress-tooltip::before {
             content: '';
             position: absolute;
-            top: -7px;
+            top: -9px;
             right: 16px;
             border-width: 0 8px 8px;
             border-style: solid;
-            border-color: transparent transparent #222 transparent;
+            border-color: transparent transparent var(--sk-border-strong, var(--vscode-panel-border)) transparent;
         }
         .progress-tooltip-streak {
             right: auto;
@@ -5943,14 +5985,14 @@ export class StepikWebview implements vscode.Disposable {
             left: 16px;
         }
         .progress-tooltip-title {
-            color: #fff;
+            color: var(--sk-fg, var(--vscode-foreground));
             font-weight: 600;
         }
         .progress-tooltip-line + .progress-tooltip-line {
             margin-top: 2px;
         }
         .progress-tooltip-line span {
-            color: #fff;
+            color: var(--sk-fg, var(--vscode-foreground));
         }
         .progress-course:hover .progress-tooltip,
         .progress-course:focus-visible .progress-tooltip,
@@ -7599,6 +7641,293 @@ export class StepikWebview implements vscode.Disposable {
         .vscode-light .hljs-strong {
             font-weight: bold;
         }
+${stepikThemeCss}
+        /* Task panel: keep the shared Stepik palette without fighting the
+           webview host's code highlighting and fullscreen video colors. */
+        body[data-view="task"] {
+            --sk-shell: 1080px;
+            padding: 0;
+            line-height: 1.65;
+        }
+        body[data-view="task"] .task-shell {
+            max-width: var(--sk-shell);
+            margin: 0 auto;
+            padding: 20px 24px 48px;
+        }
+        body[data-view="task"] .step-header {
+            padding-bottom: 12px;
+            border-bottom: 1px solid var(--sk-border);
+        }
+        body[data-view="task"] .step-nav-btn {
+            padding: 6px 14px;
+            border: 1px solid var(--sk-border-strong);
+            border-radius: 6px;
+            background: var(--sk-surface);
+            color: var(--sk-fg);
+            font-weight: 600;
+        }
+        body[data-view="task"] .step-nav-btn:hover:not(:disabled) {
+            border-color: var(--sk-accent);
+            background: var(--sk-accent-soft);
+            color: var(--sk-link);
+        }
+        body[data-view="task"] .step-nav-btn[data-step-nav="next"] {
+            border-color: var(--sk-accent-strong);
+            background: var(--sk-accent-strong);
+            color: var(--sk-on-accent);
+        }
+        body[data-view="task"] .step-nav-btn[data-step-nav="next"]:hover:not(:disabled) {
+            border-color: var(--sk-accent-hover);
+            background: var(--sk-accent-hover);
+            color: var(--sk-on-accent);
+        }
+        body[data-view="task"] .stepik-link {
+            color: var(--sk-link);
+            font-weight: 500;
+        }
+        body[data-view="task"] .stepik-link:hover { color: var(--sk-link-hover); }
+        body[data-view="task"] .task-type {
+            padding: 4px 10px;
+            border: 1px solid var(--sk-border);
+            border-radius: 999px;
+            background: var(--sk-accent-soft);
+            color: var(--sk-link);
+            font-weight: 600;
+        }
+        body[data-view="task"] .exam-banner {
+            border-color: var(--sk-warning);
+            background: color-mix(in srgb, var(--sk-warning) 12%, transparent);
+        }
+        body[data-view="task"] .exam-badge {
+            color: var(--sk-bg);
+            background: var(--sk-warning);
+        }
+        body[data-view="task"] .progress-streak {
+            background: var(--sk-accent-strong);
+            color: var(--sk-on-accent);
+        }
+        body[data-view="task"] .progress-streak-count { color: var(--sk-on-accent); opacity: 0.78; }
+        body[data-view="task"] .progress-line-track { background: var(--sk-border-strong); }
+        body[data-view="task"] .progress-line-fill { background: var(--sk-accent); }
+        body[data-view="task"] .progress-line-marker {
+            border-color: var(--sk-bg);
+            background: var(--sk-border-strong);
+        }
+        body[data-view="task"] .progress-tooltip {
+            border: 1px solid var(--sk-border-strong);
+            background: var(--sk-surface);
+            color: var(--sk-muted);
+            box-shadow: var(--sk-shadow);
+        }
+        body[data-view="task"] .progress-tooltip::before {
+            border-color: transparent transparent var(--sk-border-strong) transparent;
+        }
+        body[data-view="task"] .progress-tooltip-title,
+        body[data-view="task"] .progress-tooltip-line span { color: var(--sk-fg); }
+        body[data-view="task"] .language-selector,
+        body[data-view="task"] .quiz-section,
+        body[data-view="task"] .solutions-locked,
+        body[data-view="task"] .comment-composer,
+        body[data-view="task"] .reply-composer {
+            border: 1px solid var(--sk-border);
+            border-radius: 8px;
+            background: var(--sk-surface-2);
+        }
+        body[data-view="task"] .quiz-option,
+        body[data-view="task"] .sorting-item,
+        body[data-view="task"] .sample {
+            border-color: var(--sk-border);
+            border-radius: 8px;
+            background: var(--sk-surface);
+        }
+        body[data-view="task"] .quiz-option:hover,
+        body[data-view="task"] .sorting-item:hover {
+            border-color: var(--sk-accent);
+        }
+        body[data-view="task"] .quiz-warning {
+            border-color: var(--sk-warning);
+            background: color-mix(in srgb, var(--sk-warning) 10%, transparent);
+            color: var(--sk-fg);
+        }
+        body[data-view="task"] .quiz-error {
+            border-color: var(--sk-danger);
+            background: color-mix(in srgb, var(--sk-danger) 10%, transparent);
+            color: var(--sk-fg);
+        }
+        body[data-view="task"] .quiz-status-info { color: var(--sk-muted); }
+        body[data-view="task"] .quiz-status-success { color: var(--sk-accent-strong); }
+        body[data-view="task"] .quiz-status-error { color: var(--sk-danger); }
+        body[data-view="task"] select,
+        body[data-view="task"] input[type="text"],
+        body[data-view="task"] input[type="number"],
+        body[data-view="task"] .quiz-textarea,
+        body[data-view="task"] .matching-select,
+        body[data-view="task"] .blank-input,
+        body[data-view="task"] .blank-select,
+        body[data-view="task"] .chemical-slot input,
+        body[data-view="task"] .rich-field input,
+        body[data-view="task"] .rich-field select,
+        body[data-view="task"] .rich-field textarea {
+            border-color: var(--sk-border-strong);
+            background: var(--sk-surface);
+            color: var(--sk-fg);
+        }
+        body[data-view="task"] select:focus,
+        body[data-view="task"] input[type="text"]:focus,
+        body[data-view="task"] input[type="number"]:focus,
+        body[data-view="task"] .quiz-textarea:focus {
+            border-color: var(--sk-accent);
+            outline-color: var(--sk-accent);
+        }
+        body[data-view="task"] #open-btn,
+        body[data-view="task"] #submit-quiz-btn,
+        body[data-view="task"] #post-comment-btn,
+        body[data-view="task"] #post-solution-btn,
+        body[data-view="task"] .post-reply-btn,
+        body[data-view="task"] .rich-dialog-primary,
+        body[data-view="task"] .load-more {
+            border: 1px solid var(--sk-accent-strong);
+            border-radius: 6px;
+            background: var(--sk-accent-strong);
+            color: var(--sk-on-accent);
+            font-weight: 600;
+        }
+        body[data-view="task"] #open-btn:hover:not(:disabled),
+        body[data-view="task"] #submit-quiz-btn:hover:not(:disabled),
+        body[data-view="task"] #post-comment-btn:hover:not(:disabled),
+        body[data-view="task"] #post-solution-btn:hover:not(:disabled),
+        body[data-view="task"] .post-reply-btn:hover:not(:disabled),
+        body[data-view="task"] .rich-dialog-primary:hover:not(:disabled),
+        body[data-view="task"] .load-more:hover:not(:disabled) {
+            border-color: var(--sk-accent-hover);
+            background: var(--sk-accent-hover);
+            color: var(--sk-on-accent);
+        }
+        body[data-view="task"] button.secondary,
+        body[data-view="task"] .rich-dialog-cancel,
+        body[data-view="task"] .format-btn,
+        body[data-view="task"] .rich-tool,
+        body[data-view="task"] .rich-mode,
+        body[data-view="task"] .video-action-btn {
+            border: 1px solid var(--sk-border-strong);
+            border-radius: 6px;
+            background: var(--sk-surface);
+            color: var(--sk-fg);
+        }
+        body[data-view="task"] button.secondary:hover:not(:disabled),
+        body[data-view="task"] .rich-dialog-cancel:hover:not(:disabled),
+        body[data-view="task"] .format-btn:hover:not(:disabled),
+        body[data-view="task"] .rich-tool:hover:not(:disabled),
+        body[data-view="task"] .rich-mode:hover:not(:disabled),
+        body[data-view="task"] .video-action-btn:hover:not(:disabled) {
+            border-color: var(--sk-accent);
+            background: var(--sk-accent-soft);
+            color: var(--sk-link);
+        }
+        body[data-view="task"] .discussion-header {
+            margin-right: -24px;
+            margin-left: -24px;
+            padding-right: 24px;
+            padding-left: 24px;
+            border-bottom-color: var(--sk-border);
+            background: var(--sk-bg);
+        }
+        body[data-view="task"] .comments-section { border-top-color: var(--sk-border); }
+        body[data-view="task"] .discussion-tabs {
+            border-color: var(--sk-border);
+            border-radius: 8px;
+            background: var(--sk-surface-2);
+        }
+        body[data-view="task"] .discussion-tab { color: var(--sk-muted); }
+        body[data-view="task"] .discussion-tab:hover {
+            background: var(--sk-accent-soft);
+            color: var(--sk-fg);
+        }
+        body[data-view="task"] .discussion-tab.active {
+            background: var(--sk-accent-strong);
+            color: var(--sk-on-accent);
+        }
+        body[data-view="task"] .discussion-tab.active .comments-count {
+            background: rgba(255, 255, 255, 0.22);
+            color: inherit;
+        }
+        body[data-view="task"] .comments-count {
+            background: var(--sk-accent-soft);
+            color: var(--sk-link);
+        }
+        body[data-view="task"] .comment { border-bottom-color: var(--sk-border); }
+        body[data-view="task"] .comment.pinned {
+            border-left: 3px solid var(--sk-accent);
+            background: var(--sk-accent-soft);
+        }
+        body[data-view="task"] .comment.teacher,
+        body[data-view="task"] .comment.teacher-replied {
+            border-left-color: var(--sk-accent);
+            background: var(--sk-surface-2);
+        }
+        body[data-view="task"] .comment.solution { border-left-color: var(--sk-accent); }
+        body[data-view="task"] .comment-avatar-img,
+        body[data-view="task"] .comment-avatar-fallback { border-radius: 8px; }
+        body[data-view="task"] .comment-avatar-fallback {
+            background: var(--sk-avatar);
+            color: #ffffff;
+        }
+        body[data-view="task"] .comment-author { color: var(--sk-fg); }
+        body[data-view="task"] .comment-date,
+        body[data-view="task"] .comment-role,
+        body[data-view="task"] .comment-action-status,
+        body[data-view="task"] .composer-hint,
+        body[data-view="task"] .solutions-status,
+        body[data-view="task"] .comments-status { color: var(--sk-muted); }
+        body[data-view="task"] .comment-action-btn,
+        body[data-view="task"] .reply-btn,
+        body[data-view="task"] .replies-btn { color: var(--sk-link); }
+        body[data-view="task"] .comment-action-btn:hover:not(:disabled),
+        body[data-view="task"] .reply-btn:not(:disabled):hover { color: var(--sk-link-hover); }
+        body[data-view="task"] .stepik-rich-editor,
+        body[data-view="task"] .rich-editor-markdown {
+            border-color: var(--sk-border-strong);
+            border-radius: 8px;
+            background: var(--sk-surface);
+            color: var(--sk-fg);
+        }
+        body[data-view="task"] .rich-editor-toolbar { background: var(--sk-surface-2); }
+        body[data-view="task"] .rich-editor-modes .rich-mode.active {
+            background: var(--sk-accent-strong);
+            color: var(--sk-on-accent);
+        }
+        body[data-view="task"] .rich-editor-content a,
+        body[data-view="task"] .rich-dialog-hint a { color: var(--sk-link); }
+        body[data-view="task"] .rich-dialog {
+            border-color: var(--sk-border-strong);
+            border-radius: 10px;
+            background: var(--sk-surface);
+            color: var(--sk-fg);
+        }
+        body[data-view="task"] .rich-dialog-head { border-bottom-color: var(--sk-border); }
+        body[data-view="task"] .rich-dialog-preview { border-color: var(--sk-border-strong); }
+        body[data-view="task"] .video-unavailable {
+            border-color: var(--sk-border);
+            border-radius: 8px;
+            background: var(--sk-surface-2);
+        }
+        body[data-view="task"] .video-toolbar { color: var(--sk-muted); }
+        body[data-view="task"] .video-source-link { color: var(--sk-link); }
+        body[data-view="task"] .composer-status { color: var(--sk-muted); }
+        body[data-view="task"] .comments-empty,
+        body[data-view="task"] .comments-error {
+            border-color: var(--sk-border-strong);
+            background: var(--sk-surface-2);
+        }
+        @media (max-width: 760px) {
+            body[data-view="task"] .task-shell { padding: 16px 14px 36px; }
+            body[data-view="task"] .discussion-header {
+                margin-right: -14px;
+                margin-left: -14px;
+                padding-right: 14px;
+                padding-left: 14px;
+            }
+        }
         `;
         return this.stylesCache;
     }
@@ -7635,7 +7964,7 @@ export class StepikWebview implements vscode.Disposable {
 
             if (quizRestartBtn) {
                 quizRestartBtn.addEventListener('click', () => {
-                    setQuizStatus('info', 'Создание новой попытки…');
+                    setQuizStatus('info', t('task.newAttemptStatus'));
                     vscode.postMessage({ command: 'restart' });
                 });
             }
@@ -7669,10 +7998,10 @@ export class StepikWebview implements vscode.Disposable {
                     const hours = Math.floor(left / 3600);
                     const minutes = Math.floor((left % 3600) / 60);
                     const seconds = left % 60;
-                    examTimer.textContent =
-                        'Осталось ' +
+                    const time =
                         (hours > 0 ? hours + ':' + pad(minutes) : String(minutes)) +
                         ':' + pad(seconds);
+                    examTimer.textContent = t('task.examTimeLeft', { time: time });
                     if (left <= 0) {
                         if (examExpired) examExpired.hidden = false;
                         document
@@ -7761,7 +8090,7 @@ export class StepikWebview implements vscode.Disposable {
                         started.catch(() => {
                             if (audioEnableBtn) audioEnableBtn.hidden = false;
                             setAudioStatus(
-                                'Нажмите «Включить звук», чтобы слышать видео.',
+                                t('task.audioEnableHint'),
                                 'error'
                             );
                         });
@@ -7814,7 +8143,7 @@ export class StepikWebview implements vscode.Disposable {
                     if (videoAudio) {
                         videoAudio.addEventListener('error', () => {
                             audioReady = false;
-                            setAudioStatus('Не удалось воспроизвести звук.', 'error');
+                            setAudioStatus(t('task.audioPlaybackError'), 'error');
                         });
                         videoAudio.addEventListener('loadedmetadata', () => {
                             syncAudio(true);
@@ -7828,8 +8157,8 @@ export class StepikWebview implements vscode.Disposable {
                             const percent = Math.round(data.percent || 0);
                             setAudioStatus(
                                 data.phase === 'download'
-                                    ? 'Скачиваю звук… ' + percent + '%'
-                                    : 'Извлекаю звук… ' + percent + '%'
+                                    ? t('task.audioDownloading', { percent: percent })
+                                    : t('task.audioExtracting', { percent: percent })
                             );
                             return;
                         }
@@ -7838,12 +8167,12 @@ export class StepikWebview implements vscode.Disposable {
                                 videoAudio.src = data.url;
                                 videoAudio.load();
                                 audioReady = true;
-                                setAudioStatus('Звук готов.', 'ok');
+                                setAudioStatus(t('task.audioReady'), 'ok');
                                 if (!stepikVideo.paused) playAudio();
                             } else {
                                 audioReady = false;
                                 setAudioStatus(
-                                    data.message || 'Звук недоступен.',
+                                    data.message || t('task.audioUnavailable'),
                                     'error'
                                 );
                             }
@@ -7852,8 +8181,8 @@ export class StepikWebview implements vscode.Disposable {
                         if (data.command === 'videoViewed') {
                             if (videoStatusEl) {
                                 videoStatusEl.textContent = data.ok
-                                    ? 'Просмотр отмечен на Stepik.'
-                                    : (data.message || 'Не удалось отметить просмотр.');
+                                    ? t('task.viewMarked')
+                                    : (data.message || t('task.viewMarkFailed'));
                                 videoStatusEl.classList.toggle('ok', Boolean(data.ok));
                                 videoStatusEl.classList.toggle('error', !data.ok);
                             }
@@ -7875,8 +8204,8 @@ export class StepikWebview implements vscode.Disposable {
                     const updateFullscreenButton = () => {
                         const active = theater || Boolean(document.fullscreenElement);
                         fullscreenBtn.textContent = active
-                            ? '✕ Выйти'
-                            : '⛶ На весь экран';
+                            ? t('task.exitFullscreen')
+                            : t('task.fullscreen');
                         document.body.classList.toggle('video-theater-open', theater);
                     };
                     const setTheater = (active) => {
@@ -8365,7 +8694,7 @@ export class StepikWebview implements vscode.Disposable {
                             }
                         }
                         return {
-                            name: item.name || item.selector || 'Пункт чек-листа',
+                            name: item.name || item.selector || t('task.checklistItem'),
                             passed: passed
                         };
                     });
@@ -8384,7 +8713,7 @@ export class StepikWebview implements vscode.Disposable {
                     if (failed.length > 0) {
                         setQuizStatus(
                             'error',
-                            'Не выполнены пункты чек-листа:\n• ' +
+                            t('task.checklistFailed') +
                             failed.map((result) => result.name).join('\n• ')
                         );
                         return null;
@@ -8442,13 +8771,13 @@ export class StepikWebview implements vscode.Disposable {
                 const richEditorApi = window.StepikRichEditor;
                 const commentEditor = richEditorApi && commentEditorHost
                     ? richEditorApi.create(commentEditorHost, {
-                        placeholder: 'Написать комментарий…',
+                        placeholder: t('task.commentPlaceholder'),
                         onChange: function () { updatePostButton(); }
                     })
                     : null;
                 const solutionEditor = richEditorApi && solutionEditorHost
                     ? richEditorApi.create(solutionEditorHost, {
-                        placeholder: 'Написать решение…',
+                        placeholder: t('task.solutionPlaceholder'),
                         compact: true,
                         disabled: true,
                         onChange: function () { updateSolutionPostButton(); }
@@ -8567,9 +8896,9 @@ export class StepikWebview implements vscode.Disposable {
                     }
 
                     if (format === 'bold') {
-                        wrap('**', '**', 'жирный текст');
+                        wrap('**', '**', t('task.markdownBoldPlaceholder'));
                     } else if (format === 'italic') {
-                        wrap('*', '*', 'курсив');
+                        wrap('*', '*', t('task.markdownItalicPlaceholder'));
                     } else if (format === 'code') {
                         if (selected.indexOf('\\n') !== -1) {
                             const text =
@@ -8578,10 +8907,10 @@ export class StepikWebview implements vscode.Disposable {
                                 '\\n' + backtick + backtick + backtick;
                             replaceWith(text, start + 4, start + 4 + selected.length);
                         } else {
-                            wrap(backtick, backtick, 'код');
+                            wrap(backtick, backtick, t('task.markdownCodePlaceholder'));
                         }
                     } else if (format === 'codeblock') {
-                        const body = selected || 'код';
+                        const body = selected || t('task.markdownCodePlaceholder');
                         const text =
                             backtick + backtick + backtick + '\\n' +
                             body +
@@ -8594,7 +8923,7 @@ export class StepikWebview implements vscode.Disposable {
                             const urlStart = start + selected.length + 3;
                             replaceWith(text, urlStart, urlStart + 3);
                         } else {
-                            const text = '[текст](url)';
+                            const text = t('task.markdownLinkPlaceholder');
                             replaceWith(text, start + 1, start + 6);
                         }
                     } else if (format === 'quote') {
@@ -8688,7 +9017,7 @@ export class StepikWebview implements vscode.Disposable {
                     }
                     loadMoreBtn.style.display = hasMore ? '' : 'none';
                     loadMoreBtn.disabled = false;
-                    loadMoreBtn.textContent = 'Показать ещё комментарии';
+                    loadMoreBtn.textContent = t('task.showMoreComments');
                 }
 
                 function setSolutionsMoreState(hasMore) {
@@ -8698,7 +9027,7 @@ export class StepikWebview implements vscode.Disposable {
                     }
                     loadMoreSolutionsBtn.style.display = hasMore ? '' : 'none';
                     loadMoreSolutionsBtn.disabled = false;
-                    loadMoreSolutionsBtn.textContent = 'Показать ещё решения';
+                    loadMoreSolutionsBtn.textContent = t('task.showMoreSolutions');
                 }
 
                 function setView(view) {
@@ -8754,7 +9083,7 @@ export class StepikWebview implements vscode.Disposable {
                     if (retrySolutionsBtn) {
                         retrySolutionsBtn.style.display = 'none';
                     }
-                    setSolutionsStatus('Загрузка решений…');
+                    setSolutionsStatus(t('task.loadingSolutions'));
                     vscode.postMessage({ command: 'loadSolutions' });
                 }
 
@@ -8771,7 +9100,7 @@ export class StepikWebview implements vscode.Disposable {
                     commentsLoading = true;
                     if (loadMoreBtn) {
                         loadMoreBtn.disabled = true;
-                        loadMoreBtn.textContent = 'Загрузка…';
+                        loadMoreBtn.textContent = t('task.loading');
                         loadMoreBtn.style.display = '';
                     }
                     setStatus('');
@@ -8798,7 +9127,7 @@ export class StepikWebview implements vscode.Disposable {
                     solutionsLoading = true;
                     if (loadMoreSolutionsBtn) {
                         loadMoreSolutionsBtn.disabled = true;
-                        loadMoreSolutionsBtn.textContent = 'Загрузка…';
+                        loadMoreSolutionsBtn.textContent = t('task.loading');
                         loadMoreSolutionsBtn.style.display = '';
                     }
                     setSolutionsStatus('');
@@ -8835,7 +9164,7 @@ export class StepikWebview implements vscode.Disposable {
                         return;
                     }
                     postCommentBtn.disabled = true;
-                    setComposerStatus('Отправка…');
+                    setComposerStatus(t('task.sending'));
                     vscode.postMessage({
                         command: 'postComment',
                         text: payload.text,
@@ -8854,13 +9183,13 @@ export class StepikWebview implements vscode.Disposable {
                     const submissionId = getSelectedSubmissionId();
                     if (!submissionId) {
                         setSolutionComposerStatus(
-                            'Выберите решение, которое нужно прикрепить к комментарию.'
+                            t('task.selectSolutionHint')
                         );
                         updateSolutionPostButton();
                         return;
                     }
                     postSolutionBtn.disabled = true;
-                    setSolutionComposerStatus('Отправка…');
+                    setSolutionComposerStatus(t('task.sending'));
                     vscode.postMessage({
                         command: 'postComment',
                         text: payload.text,
@@ -8919,11 +9248,11 @@ export class StepikWebview implements vscode.Disposable {
 
                     if (!composer.querySelector('[data-stepik-rich-editor]')) {
                         composer.innerHTML =
-                            '<div class="comment-rich-host" id="reply-editor-' + commentId + '" data-stepik-rich-editor data-placeholder="Написать ответ…" data-compact></div>' +
-                            '<div class="composer-hint">Формулы, изображения и блоки кода доступны на панели редактора.</div>' +
+                            '<div class="comment-rich-host" id="reply-editor-' + commentId + '" data-stepik-rich-editor data-placeholder="' + t('task.replyPlaceholder') + '" data-compact></div>' +
+                            '<div class="composer-hint">' + t('task.replyHint') + '</div>' +
                             '<div class="composer-actions">' +
-                            '<button class="post-reply-btn" data-parent-id="' + parentId + '" disabled>Отправить ответ</button>' +
-                            '<button class="cancel-reply-btn secondary" type="button">Отмена</button>' +
+                            '<button class="post-reply-btn" data-parent-id="' + parentId + '" disabled>' + t('task.sendReply') + '</button>' +
+                            '<button class="cancel-reply-btn secondary" type="button">' + t('task.cancel') + '</button>' +
                             '<span class="composer-status"></span>' +
                             '</div>';
 
@@ -8931,7 +9260,7 @@ export class StepikWebview implements vscode.Disposable {
                         if (host && richEditorApi) {
                             richEditorApi.get(host.id) ||
                                 richEditorApi.create(host, {
-                                    placeholder: 'Написать ответ…',
+                                    placeholder: t('task.replyPlaceholder'),
                                     compact: true,
                                     onChange: function () {
                                         updateReplyButton(composer);
@@ -8974,7 +9303,7 @@ export class StepikWebview implements vscode.Disposable {
                     button.disabled = true;
                     const status = composer.querySelector('.composer-status');
                     if (status) {
-                        status.textContent = 'Отправка…';
+                        status.textContent = t('task.sending');
                     }
                     vscode.postMessage({
                         command: 'postComment',
@@ -9043,7 +9372,7 @@ export class StepikWebview implements vscode.Disposable {
                     }
 
                     button.disabled = true;
-                    setCommentActionStatus(comment, 'Загрузка…');
+                    setCommentActionStatus(comment, t('task.loading'));
                     richEditorApi
                         .request('loadCommentEditor', { commentId: commentId })
                         .then(function (data) {
@@ -9051,14 +9380,14 @@ export class StepikWebview implements vscode.Disposable {
                             textEl.innerHTML =
                                 '<div class="comment-edit-host" id="comment-edit-host-' +
                                 commentId +
-                                '" data-stepik-rich-editor data-compact data-placeholder="Текст комментария…"></div>' +
+                                '" data-stepik-rich-editor data-compact data-placeholder="' + t('task.commentTextPlaceholder') + '"></div>' +
                                 '<div class="comment-edit-actions">' +
                                 '<button type="button" class="save-comment-edit" data-comment-id="' +
                                 commentId +
-                                '">Сохранить</button>' +
+                                '">' + t('task.save') + '</button>' +
                                 '<button type="button" class="cancel-comment-edit secondary" data-comment-id="' +
                                 commentId +
-                                '">Отмена</button>' +
+                                '">' + t('task.cancel') + '</button>' +
                                 '<span class="comment-edit-status"></span>' +
                                 '</div>';
                             const host = document.getElementById(
@@ -9066,7 +9395,7 @@ export class StepikWebview implements vscode.Disposable {
                             );
                             const editor = richEditorApi.create(host, {
                                 compact: true,
-                                placeholder: 'Текст комментария…',
+                                placeholder: t('task.commentTextPlaceholder'),
                                 onChange: function () {
                                     updateEditSaveButton(host.id);
                                 }
@@ -9081,7 +9410,7 @@ export class StepikWebview implements vscode.Disposable {
                             button.disabled = false;
                             setCommentActionStatus(
                                 comment,
-                                error.message || 'Не удалось открыть редактор'
+                                error.message || t('task.commentEditorLoadError')
                             );
                         });
                 }
@@ -9116,7 +9445,7 @@ export class StepikWebview implements vscode.Disposable {
 
                     const badge = document.createElement('span');
                     badge.className = 'comment-flag teacher-reply';
-                    badge.textContent = 'Преподаватель ответил';
+                    badge.textContent = t('task.teacherReplied');
                     const date = head.querySelector('.comment-date');
                     head.insertBefore(badge, date || null);
                 }
@@ -9204,7 +9533,7 @@ export class StepikWebview implements vscode.Disposable {
                         const button = existing.querySelector('.replies-more-btn');
                         if (button) {
                             button.disabled = false;
-                            button.textContent = 'Показать ещё ответы';
+                            button.textContent = t('task.showMoreReplies');
                         }
                         const status = existing.querySelector('.replies-status');
                         if (status) {
@@ -9218,7 +9547,7 @@ export class StepikWebview implements vscode.Disposable {
                         '<div class="replies-footer">' +
                             '<button type="button" class="replies-more-btn" data-comment-id="' +
                             commentId +
-                            '">Показать ещё ответы</button>' +
+                            '">' + t('task.showMoreReplies') + '</button>' +
                             '<span class="replies-status"></span>' +
                         '</div>'
                     );
@@ -9244,13 +9573,13 @@ export class StepikWebview implements vscode.Disposable {
 
                     if (container.hasAttribute('hidden')) {
                         container.removeAttribute('hidden');
-                        button.textContent = 'Скрыть ответы';
+                        button.textContent = t('task.hideReplies');
                     } else {
                         container.setAttribute('hidden', '');
                         const total = button.getAttribute('data-total');
                         button.textContent = total
-                            ? 'Показать ответы (' + total + ')'
-                            : 'Показать ответы';
+                            ? t('task.showRepliesCount', { count: total })
+                            : t('task.showReplies');
                     }
                 }
 
@@ -9263,7 +9592,7 @@ export class StepikWebview implements vscode.Disposable {
                 if (reloadBtn) {
                     reloadBtn.addEventListener('click', function () {
                         reloadBtn.disabled = true;
-                        reloadBtn.textContent = 'Загрузка…';
+                        reloadBtn.textContent = t('task.loading');
                         vscode.postMessage({ command: 'reloadComments' });
                     });
                 }
@@ -9276,7 +9605,7 @@ export class StepikWebview implements vscode.Disposable {
                             solutionsLoaded = false;
                             setSolutionComposerEnabled(false);
                             setSolutionsMoreState(false);
-                            setSolutionsStatus('Сортировка…');
+                            setSolutionsStatus(t('task.sorting'));
                             vscode.postMessage({
                                 command: 'changeSolutionsSort',
                                 sort: solutionsSort
@@ -9287,7 +9616,7 @@ export class StepikWebview implements vscode.Disposable {
                         commentSort = sortSelect.value;
                         commentsLoading = true;
                         autoLoadPausedUntil = 0;
-                        setStatus('Сортировка…');
+                        setStatus(t('task.sorting'));
                         if (loadMoreBtn) {
                             loadMoreBtn.style.display = 'none';
                         }
@@ -9338,7 +9667,7 @@ export class StepikWebview implements vscode.Disposable {
                     solutionsTab.addEventListener('click', function () {
                         setView('solutions');
                         if (!solutionsAvailable) {
-                            setSolutionsStatus('Проверяем доступ к решениям…');
+                            setSolutionsStatus(t('task.checkingSolutionsAccess'));
                             vscode.postMessage({ command: 'recheckSolutions' });
                             return;
                         }
@@ -9349,8 +9678,8 @@ export class StepikWebview implements vscode.Disposable {
                 if (recheckSolutionsBtn) {
                     recheckSolutionsBtn.addEventListener('click', function () {
                         recheckSolutionsBtn.disabled = true;
-                        recheckSolutionsBtn.textContent = 'Проверка…';
-                        setSolutionsStatus('Проверяем доступ к решениям…');
+                        recheckSolutionsBtn.textContent = t('task.rechecking');
+                        setSolutionsStatus(t('task.checkingSolutionsAccess'));
                         vscode.postMessage({ command: 'recheckSolutions' });
                     });
                 }
@@ -9413,7 +9742,7 @@ export class StepikWebview implements vscode.Disposable {
                         const comment = getCommentElement(commentId);
                         const status = comment && comment.querySelector('.comment-edit-status');
                         if (status) {
-                            status.textContent = 'Сохранение…';
+                            status.textContent = t('task.saving');
                         }
                         vscode.postMessage({
                             command: 'updateComment',
@@ -9439,7 +9768,7 @@ export class StepikWebview implements vscode.Disposable {
                         const commentId = Number(deleteBtn.getAttribute('data-comment-id'));
                         const comment = getCommentElement(commentId);
                         deleteBtn.disabled = true;
-                        setCommentActionStatus(comment, 'Подтвердите удаление…');
+                        setCommentActionStatus(comment, t('task.confirmDelete'));
                         vscode.postMessage({ command: 'deleteComment', commentId: commentId });
                         return;
                     }
@@ -9529,7 +9858,7 @@ export class StepikWebview implements vscode.Disposable {
 
                         repliesBtn.setAttribute('data-loading', '1');
                         repliesBtn.disabled = true;
-                        repliesBtn.textContent = 'Загрузка ответов…';
+                        repliesBtn.textContent = t('task.loadingReplies');
                         const container = document.getElementById('replies-' + commentId);
                         if (container) {
                             container.removeAttribute('hidden');
@@ -9539,7 +9868,7 @@ export class StepikWebview implements vscode.Disposable {
                             ) {
                                 container.insertAdjacentHTML(
                                     'beforeend',
-                                    '<div class="replies-loading">Загрузка ответов…</div>'
+                                    '<div class="replies-loading">' + t('task.loadingReplies') + '</div>'
                                 );
                             }
                         }
@@ -9557,11 +9886,11 @@ export class StepikWebview implements vscode.Disposable {
                             return;
                         }
                         moreRepliesBtn.disabled = true;
-                        moreRepliesBtn.textContent = 'Загрузка…';
+                        moreRepliesBtn.textContent = t('task.loading');
                         const footer = moreRepliesBtn.closest('.replies-footer');
                         const status = footer && footer.querySelector('.replies-status');
                         if (status) {
-                            status.textContent = 'Загрузка ответов…';
+                            status.textContent = t('task.loadingReplies');
                         }
                         vscode.postMessage({
                             command: 'loadReplies',
@@ -9681,7 +10010,7 @@ export class StepikWebview implements vscode.Disposable {
                             if (typeof message.total !== 'undefined') {
                                 repliesBtn.setAttribute('data-total', String(message.total));
                             }
-                            repliesBtn.textContent = 'Скрыть ответы';
+                            repliesBtn.textContent = t('task.hideReplies');
                         }
 
                         if (message.teacherReplied) {
@@ -9696,7 +10025,7 @@ export class StepikWebview implements vscode.Disposable {
                             btn.disabled = false;
                             btn.removeAttribute('data-loading');
                             if (btn.getAttribute('data-loaded') !== '1') {
-                                btn.textContent = 'Повторить загрузку ответов';
+                                btn.textContent = t('task.retryLoadReplies');
                             }
                         }
                         const container = document.getElementById('replies-' + message.commentId);
@@ -9709,17 +10038,17 @@ export class StepikWebview implements vscode.Disposable {
                                 const moreBtn = container.querySelector('.replies-more-btn');
                                 if (moreBtn) {
                                     moreBtn.disabled = false;
-                                    moreBtn.textContent = 'Показать ещё ответы';
+                                    moreBtn.textContent = t('task.showMoreReplies');
                                 }
                                 const footer = container.querySelector('.replies-footer');
                                 const status = footer && footer.querySelector('.replies-status');
                                 if (status) {
                                     status.textContent =
-                                        message.message || 'Не удалось загрузить ответы';
+                                        message.message || t('task.repliesLoadError', { detail: '' });
                                 }
                             }
                         }
-                        setStatus(message.message || 'Не удалось загрузить ответы');
+                        setStatus(message.message || t('task.repliesLoadError', { detail: '' }));
                     } else if (message.command === 'voteUpdated') {
                         setVoteControls(
                             Number(message.commentId),
@@ -9734,7 +10063,7 @@ export class StepikWebview implements vscode.Disposable {
                             message.vote,
                             message.epicCount,
                             message.abuseCount,
-                            message.message || 'Не удалось изменить оценку'
+                            message.message || t('task.voteChangeError', { detail: '' })
                         );
                     } else if (message.command === 'commentUpdated') {
                         const commentId = Number(message.commentId);
@@ -9744,7 +10073,7 @@ export class StepikWebview implements vscode.Disposable {
                             textEl.innerHTML = message.bodyHtml || '';
                         }
                         editSnapshots.delete(commentId);
-                        setCommentActionStatus(comment, 'Сохранено');
+                        setCommentActionStatus(comment, t('task.saved'));
                         setTimeout(function () {
                             setCommentActionStatus(comment, '');
                         }, 2500);
@@ -9766,9 +10095,9 @@ export class StepikWebview implements vscode.Disposable {
                         );
                         for (const button of buttons) {
                             button.disabled = false;
-                            button.textContent = 'Скопировано';
+                            button.textContent = t('task.copied');
                             setTimeout(function () {
-                                button.textContent = 'Ссылка';
+                                button.textContent = t('task.link');
                             }, 2000);
                         }
                     } else if (message.command === 'commentActionCancelled') {
@@ -9798,14 +10127,14 @@ export class StepikWebview implements vscode.Disposable {
                                 editStatus.textContent = message.message || '';
                             }
                         }
-                        setCommentActionStatus(comment, message.message || 'Ошибка');
+                        setCommentActionStatus(comment, message.message || t('task.error'));
                     } else if (message.command === 'commentsError') {
                         commentsLoading = false;
                         autoLoadPausedUntil = Date.now() + 15000;
-                        setStatus(message.message || 'Не удалось загрузить комментарии');
+                        setStatus(message.message || t('task.commentsLoadError', { detail: '' }));
                         if (loadMoreBtn) {
                             loadMoreBtn.disabled = false;
-                            loadMoreBtn.textContent = 'Повторить';
+                            loadMoreBtn.textContent = t('task.retry');
                             loadMoreBtn.style.display = '';
                         }
                     } else if (message.command === 'commentPosted') {
@@ -9814,11 +10143,11 @@ export class StepikWebview implements vscode.Disposable {
                                 solutionEditor.clear();
                             }
                             updateSolutionPostButton();
-                            setSolutionComposerStatus('Решение отправлено');
+                            setSolutionComposerStatus(t('task.solutionSent'));
                             setTimeout(function () {
                                 if (
                                     solutionComposerStatus &&
-                                    solutionComposerStatus.textContent === 'Решение отправлено'
+                                    solutionComposerStatus.textContent === t('task.solutionSent')
                                 ) {
                                     setSolutionComposerStatus('');
                                 }
@@ -9830,9 +10159,9 @@ export class StepikWebview implements vscode.Disposable {
                             commentEditor.clear();
                         }
                         updatePostButton();
-                        setComposerStatus('Комментарий отправлен');
+                        setComposerStatus(t('task.commentSent'));
                         setTimeout(function () {
-                            if (composerStatus && composerStatus.textContent === 'Комментарий отправлен') {
+                            if (composerStatus && composerStatus.textContent === t('task.commentSent')) {
                                 setComposerStatus('');
                             }
                         }, 2500);
@@ -9840,14 +10169,14 @@ export class StepikWebview implements vscode.Disposable {
                         if (message.parentId) {
                             resetReplyComposer(
                                 Number(message.parentId),
-                                message.message || 'Не удалось отправить'
+                                message.message || t('task.sendFailed')
                             );
                         } else if (message.thread === 'solutions') {
                             setSolutionComposerEnabled(true);
-                            setSolutionComposerStatus(message.message || 'Не удалось отправить');
+                            setSolutionComposerStatus(message.message || t('task.sendFailed'));
                         } else {
                             updatePostButton();
-                            setComposerStatus(message.message || 'Не удалось отправить');
+                            setComposerStatus(message.message || t('task.sendFailed'));
                         }
                     } else if (message.command === 'replyPosted') {
                         const composers = document.querySelectorAll('.reply-composer[data-open="1"]');
@@ -9901,7 +10230,7 @@ export class StepikWebview implements vscode.Disposable {
                         }
                         if (recheckSolutionsBtn) {
                             recheckSolutionsBtn.disabled = false;
-                            recheckSolutionsBtn.textContent = 'Проверить снова';
+                            recheckSolutionsBtn.textContent = t('task.recheckSolutions');
                         }
                         if (!solutionsAvailable) {
                             solutionsLoaded = false;
@@ -9926,7 +10255,7 @@ export class StepikWebview implements vscode.Disposable {
                                 solutionsContent.innerHTML = message.html;
                             } else {
                                 solutionsContent.innerHTML =
-                                    '<div class="comments-empty">Решений пока нет.</div>';
+                                    '<div class="comments-empty">' + t('task.solutionsEmpty') + '</div>';
                             }
                         }
                         setSolutionsStatus('');
@@ -9952,7 +10281,7 @@ export class StepikWebview implements vscode.Disposable {
                             retrySolutionsBtn.style.display = '';
                         }
                         setSolutionsMoreState(false);
-                        setSolutionsStatus(message.message || 'Не удалось загрузить решения', true);
+                        setSolutionsStatus(message.message || t('task.solutionsLoadError', { detail: '' }), true);
                     }
                 });
             })();

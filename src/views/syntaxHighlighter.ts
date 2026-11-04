@@ -1,5 +1,6 @@
 import hljs from 'highlight.js/lib/core';
 import type { LanguageFn } from 'highlight.js';
+import { t } from '../i18n';
 
 import bash from 'highlight.js/lib/languages/bash';
 import c from 'highlight.js/lib/languages/c';
@@ -92,7 +93,7 @@ const LANGUAGE_LABELS: { [key: string]: string } = {
     matlab: 'MATLAB/Octave',
     perl: 'Perl',
     php: 'PHP',
-    plaintext: 'Текст',
+    plaintext: 'Plain text',
     powershell: 'PowerShell',
     python: 'Python',
     r: 'R',
@@ -114,7 +115,7 @@ const LANGUAGE_LABELS: { [key: string]: string } = {
 export function getCommentCodeLanguages(): Array<{ value: string; label: string }> {
     return LANGUAGES.map(([value]) => ({
         value,
-        label: LANGUAGE_LABELS[value] || value
+        label: value === 'plaintext' ? t('editor.plaintext') : LANGUAGE_LABELS[value] || value
     }));
 }
 

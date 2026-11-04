@@ -1,488 +1,311 @@
-# Stepik for VS Code (Fork)
+<div align="center">
 
-[[RU]](README.md)
+<img src="resources/icon.png" width="128" height="128" alt="Stepik Fork for VS Code">
 
-> **Fork:** [su-mt/stepik-vscode](https://github.com/su-mt/stepik-vscode).
-> **Author:** Danil Proskurin (꧁༒☬𝔉𝔜𝔡𝔡𝔡𝔡𝔰𝔰☬༒꧂).
-> Solve [Stepik](https://stepik.org) problems directly in VS Code.
+# Stepik for VS Code
 
-The project is distributed under GPL-3.0. This version adds comments with a
-rich editor, the solutions forum, Markdown formatting, voting, formula
-rendering, exams, step navigation, a built-in video player, per-account
-workspaces, ZIP archives of solutions, and a progress panel.
+**Solve Stepik problems without leaving your editor.**
 
-## Contents
+Courses, theory, quizzes, code, exams, video, and discussions — all in one VS Code window.
 
-- [Features](#features)
-- [Requirements](#requirements)
-- [Installation](#installation)
-- [First launch](#first-launch)
-- [OAuth setup](#oauth-setup)
-- [Login and course selection](#login-and-course-selection)
-- [Interface](#interface)
-- [Solving problems](#solving-problems)
-- [Exams](#exams)
-- [Video](#video)
-- [Comments and solutions](#comments-and-solutions)
-- [Math](#math)
-- [Commands and shortcuts](#commands-and-shortcuts)
-- [Solutions folder](#solutions-folder)
-- [Accounts and archives](#accounts-and-archives)
-- [Updating and uninstalling](#updating-and-uninstalling)
-- [Troubleshooting](#troubleshooting)
-- [Building from source](#building-from-source)
-- [Limitations](#limitations)
-- [Author](#author)
-- [License](#license)
+[![Version](https://img.shields.io/badge/version-0.4.7-54ad54?style=flat-square)](CHANGELOG.md)
+[![VS Code](https://img.shields.io/badge/VS%20Code-1.85%2B-288b28?style=flat-square)](https://code.visualstudio.com/)
+[![License](https://img.shields.io/badge/license-GPL--3.0-264c26?style=flat-square)](LICENSE.txt)
+[![Languages](https://img.shields.io/badge/interface-English%20%7C%20Русский-54ad54?style=flat-square)](#interface-language)
+
+[Русская версия](README.md) · [Changelog](CHANGELOG.md) · [Issues](https://github.com/danilproskurin291-cmd/stepik-vscode/issues)
+
+</div>
+
+![Stepik task panel in VS Code](media/task.png)
+
+## What's new in 0.4.7
+
+- **Dark theme in Stepik style.** Every extension panel shares the Stepik palette
+  and looks correct in light, dark, and high-contrast VS Code themes.
+- **Switchable interface language.** Russian and English, following the VS Code
+  display language automatically or selected manually.
+- **New 128×128 icon** for the Marketplace and the Extensions view.
+- **Updated README and screenshots** with a privacy-safe OAuth walkthrough.
 
 ## Features
 
-- OAuth login to Stepik;
-- course, section, lesson, and step tree in the sidebar;
-- passed and started progress markers;
-- problem statement and answer form in a dedicated panel;
-- **Back** and **Next** buttons for navigation inside a section;
-- background preloading of neighbouring steps;
-- solution submission from the editor;
-- `~/stepik/<account-name>` solutions folder organized by course and lesson;
-- a separate folder and ZIP archive for every Stepik account;
-- the solutions folder is created automatically and does not need to be opened
-  in VS Code;
-- all graded Stepik problem types;
-- exam sections with a timer and submission lock;
-- built-in video player;
-- progress panel with a day streak, points, percent complete, and points
-  remaining to a certificate;
-- comments, replies, voting, and sorting;
-- solutions forum for every graded problem type;
-- rich comment editor with live preview, Markdown mode, formulas, images, and
-  code blocks;
-- copy-link, edit, and delete actions for your own comments;
-- KaTeX/MathML formula rendering.
+| | |
+| --- | --- |
+| 📚 **Course tree** | Sections, lessons, and steps with progress markers in the sidebar. |
+| 🧩 **Every task type** | Quizzes, short answers, numbers, formulas, sorting, tables, blanks, SQL, HTML/CSS, chemistry, and code. |
+| 💻 **Solutions as files** | A dedicated `~/stepik/<account>` folder with a course → lesson → step layout. |
+| ✅ **Checks and retries** | Submit from the editor, read detailed feedback, and retry in one click. |
+| ⏱ **Exams** | Timer, submission lock after the deadline, and active-session recovery. |
+| 🎬 **Video** | Built-in player with quality, subtitles, and automatic view tracking. |
+| 💬 **Comments** | Rich editor, Markdown, formulas, images, replies, votes, and sorting. |
+| 🏆 **Solutions forum** | Solutions for every checkable task type, including teacher answers. |
+| 📈 **Progress** | Streak, points, completion bar, and distance to the certificate. |
+| 🔔 **Notifications** | Background watcher, toasts, and an unread history. |
+| 👤 **Profile** | Learning stats, achievements, certificates, and a public preview. |
+| 🌗 **Themes** | Light, dark, and high contrast — always readable. |
+| 🌐 **Language** | `auto`, `ru`, or `en` for every panel and notification. |
 
-## Requirements
+## Screenshots
 
-- VS Code 1.85 or newer;
-- a [stepik.org](https://stepik.org) account;
-- your own Stepik OAuth application (takes a couple of minutes, see below);
-- Node.js 18+ for building from source.
+### Course catalog
 
-The extension is not an official Stepik client. It uses the public Stepik API
-and your OAuth credentials.
+Search, recommendations, popular courses, a free-only filter, and direct
+enrollment in free courses without opening the website.
+
+![Course catalog](media/catalog.png)
+
+### Task panel
+
+Statement, answer form, progress, comments, and the solutions forum in one
+panel. For code tasks, the solution file opens next to it in the editor.
+
+![Task panel](media/task.png)
+
+### Profile
+
+Learning stats, streak, achievements, and certificates. The avatar, name, and
+ID are redacted in the screenshot.
+
+![Profile](media/profile.png)
+
+### Notifications
+
+Replies to comments, solution checks, and other Stepik events.
+
+![Notifications](media/notifications.png)
 
 ## Installation
 
-### Prebuilt VSIX
+### Ready-made VSIX
 
-1. Open the
-   [Releases](https://github.com/danilproskurin291-cmd/stepik-vscode/releases)
-   page.
-2. Download the latest `stepik-vscode-fork-0.4.4.vsix`.
-3. Install it in one of these ways:
-   - from a terminal:
+1. Download `stepik-vscode-fork-0.4.7.vsix` from
+   [Releases](https://github.com/danilproskurin291-cmd/stepik-vscode/releases).
+2. Install it:
 
-     ```bash
-     code --install-extension stepik-vscode-fork-0.4.4.vsix
-     ```
+   ```bash
+   code --install-extension stepik-vscode-fork-0.4.7.vsix
+   ```
 
-   - or in VS Code: **Extensions → … → Install from VSIX…**, then select the
-     downloaded file.
-4. Reload the window: **Developer: Reload Window**.
+   Or open **Extensions → … → Install from VSIX…** and pick the file.
+3. Reload the window: **Developer: Reload Window**.
 
-After installation, a Stepik icon appears in the activity bar.
+The Stepik icon appears in the Activity Bar after installation.
 
 ### From source
 
-Node.js 18+ is required.
+Requires Node.js 18+.
 
 ```bash
 npm ci
 npm run build
 npx @vscode/vsce package
-code --install-extension stepik-vscode-fork-0.4.4.vsix
+code --install-extension stepik-vscode-fork-0.4.7.vsix
 ```
 
-Build output: `dist/extension.js` and `dist/audioWorker.js`.
-Installable package: `stepik-vscode-fork-0.4.4.vsix`.
+## Quick start
 
-## First launch
+1. Click the **Stepik** icon in the Activity Bar.
+2. Run **Stepik: Login** and enter your OAuth application credentials.
+3. Choose a course with **Stepik: Select Course** or open
+   **Stepik: Browse Courses**.
+4. Open any step in the tree.
+5. Solve the task in the panel or in the editor file, then submit.
 
-1. Click the **Stepik** icon in the activity bar.
-2. Log in with the icon in the panel title or the **Stepik: Login** command.
-3. Enter your Stepik OAuth application credentials.
-4. Choose a course with **Stepik: Select Course**.
-5. Open any step in the tree.
+On the first login the extension creates the solutions folder
+`~/stepik/<account-name>`. You do not need to open it as a workspace.
 
-After login the extension automatically creates the
-`~/stepik/<account-name>` solutions folder. It does not need to be opened as a
-workspace. If you used version 0.4.1 or older, the contents of `~/.stepik` are
-migrated into the first account folder automatically, and the old folder is
-kept as `~/.stepik.backup-<time>`. See [Solutions folder](#solutions-folder) and
-[Accounts and archives](#accounts-and-archives) for details.
+## OAuth login
 
-## OAuth setup
+The extension uses OAuth 2.0 with the `client-credentials` grant type. You do
+not enter your Stepik password — only the Client ID and Client Secret of your
+OAuth application.
 
-The extension uses OAuth 2.0 with the `client-credentials` grant. It needs the
-`client id` and `client secret` of your Stepik application. Your Stepik account
-password is never entered in the extension.
+### 1. Create an application
 
 1. Sign in to Stepik and open
    <https://stepik.org/oauth2/applications/>.
 2. Click **New application**.
-3. Fill in the fields:
+3. Fill in:
    - **Name** — anything, for example `Stepik VS Code`;
    - **Client type** — `confidential`;
    - **Authorization grant type** — `client-credentials`;
-   - **Redirect uris** — may be left empty.
-4. Save the application.
-5. Copy the **Client ID** and **Client Secret**.
+   - **Redirect uris** — may stay empty.
+4. Save the application and copy the **Client ID** and **Client Secret**.
 
-In VS Code, run **Stepik: Login** and paste the Client ID first, then the Client
-Secret. The secret is entered as a password.
+![Stepik OAuth application](media/oauth-app.png)
 
-The credentials are stored in VS Code `SecretStorage`, not in regular settings.
-The access token is refreshed automatically while the Client ID and Client
-Secret are stored. **Stepik: Logout** archives the solutions first, then
-removes the saved credentials and closes the task panel.
+> In the screenshot the Client ID and Client Secret are replaced with the
+> placeholders `YOUR_CLIENT_ID` and `YOUR_CLIENT_SECRET`. Your real keys are
+> never published.
 
-To switch Stepik accounts, run **Stepik: Logout**, then **Stepik: Login** with
-the credentials of another application. The current account is archived, and
-the new account gets a separate folder.
+### 2. Enter the Client ID
 
-## Login and course selection
+Run **Stepik: Login**. VS Code asks for the Client ID:
 
-- **Stepik: Login** — sign in with Client ID and Client Secret.
-- **Stepik: Logout** — archive the solutions, sign out, and remove the saved
-  credentials.
-- **Stepik: Archive Account Solutions** — archive the current account without
-  signing out.
-- **Stepik: Select Course** — choose one of your courses.
-- **Stepik: Browse Courses** — course catalog with recommendations and search.
-- **Stepik: Refresh** — reload the course tree and progress.
+![Client ID prompt](media/login-client-id.png)
 
-The selected course is saved and restored on the next launch.
+### 3. Enter the Client Secret
 
-The course picker lists the courses you are enrolled in and a
-**Choose another course…** item. It opens the catalog:
+The secret is entered hidden and stored in VS Code `SecretStorage`, not in
+regular settings.
 
-- **Recommended** — Stepik's relevance-ranked selection;
-- **Popular** — Stepik's curated list of popular courses;
-- **My courses** — courses from your profile.
+![Client Secret prompt](media/login-client-secret.png)
 
-The catalog supports search by title and description, a **free-only** filter,
-and links to stepik.org. Courses keep Stepik's own order: relevance for search
-and recommendations, popularity for the Popular tab. Scrolling to the bottom
-loads the next 20 courses automatically, while one more page is prefetched in
-the background so normal-speed scrolling stays smooth.
+After login the access token refreshes automatically. **Stepik: Logout** first
+creates a ZIP archive of your solutions, then removes the saved credentials.
 
-A free course you are not enrolled in yet can be joined right from the catalog
-with the **Enroll in course** button: the extension creates the enrollment in
-your Stepik account, selects the course, and opens it in the tree. Paid courses
-that are not in your profile are never enrolled locally — the **Buy on
-Stepik ↗** button opens the course page on stepik.org to complete the purchase
-and enrollment.
+## Interface language
+
+Switch the language with **Stepik: Change Interface Language** or through the
+setting:
+
+```json
+"stepik.language": "auto"
+```
+
+| Value | Behaviour |
+| --- | --- |
+| `auto` | Follow the VS Code display language; fall back to English. |
+| `ru` | Russian interface. |
+| `en` | English interface. |
+
+The setting applies immediately: panels, tree, notifications, profile, and
+catalog refresh without a restart.
 
 ## Interface
 
 ### Sidebar
 
-The **Stepik** view shows the selected course tree:
+The selected course tree shows sections, lessons, and steps. Colors and icons
+communicate the state:
 
-- sections;
-- lessons;
-- steps.
+- 🟢 green — the step or lesson is complete;
+- 🟡 yellow — the step is started but not finished;
+- 🔒 lock — the material is locked;
+- ⏱ an exam section offers **Start exam**.
 
-Colours and icons indicate the state:
-
-- green — the step or lesson is passed;
-- yellow — the step is started but not passed;
-- lock — the material is locked or unavailable;
-- an exam section shows a **Start Exam** action.
-
-The view title contains buttons for course selection, refresh, logout, and
-login.
+The panel title bar has course selection, refresh, notifications, profile,
+login/logout, and language switching.
 
 ### Task panel
 
-Opening a step opens the **Stepik Task** panel beside the editor. It contains:
+Opening a step shows the **Stepik Task** panel:
 
 - **← Back** and **Next →** buttons;
-- the **Open on Stepik ↗** link;
-- the problem type;
-- the problem statement;
-- an answer form, or a language selector for code problems;
+- an **Open on Stepik ↗** link;
+- task type and statement;
+- an answer form or language picker for code tasks;
+- the progress block;
 - comments and the solutions tab.
 
-For code problems, the solution file opens in the editor while the task panel
-stays beside it.
+### Progress
 
-### Progress panel
+The task panel shows your streak, earned and maximum points, a completion bar,
+and a hint about how much is left to the certificate.
 
-The progress block is shown in the top-right corner of the task panel:
+## Solving tasks
 
-- **day streak** — how many days in a row you have studied; hover to see the
-  maximum streak;
-- **points** — earned and maximum (`269 / 2181`);
-- **progress line** — a bar with markers for the regular and distinction
-  certificate thresholds;
-- **certificate** — hover over the points to see how many points remain and the
-  estimated study time.
+### Code tasks
 
-The values come from Stepik and are refreshed when steps are opened.
-
-## Solving problems
-
-### Code problems
-
-1. Open a **code** step in the tree.
-2. Choose a programming language in the task panel.
+1. Open a **code** step.
+2. Pick a programming language.
 3. Click **Open in Editor**.
-4. The extension creates and opens a file at
-   `~/stepik/<account-name>/<course>/<lesson>/step-<number>.<extension>`.
-5. Write your solution and save the file.
-6. Submit it:
-   - with the cloud-upload button in the editor title, or
-   - with the **Stepik: Submit Solution** command.
+4. Write the solution in the created file and save it.
+5. Submit with the cloud button in the editor title or with
+   **Stepik: Submit Solution**.
 
-The extension reuses the latest attempt. The result appears in a notification,
-and error details are written to **Output → Stepik**.
+File path:
+`~/stepik/<account-name>/<course>/<lesson>/step-<number>.<extension>`.
 
-If the file was not created by opening a step or was moved after creation,
-submission fails because the extension cannot find the file-to-step mapping.
-Open the step from the tree again in that case.
+The template is created once and never overwrites an existing file. If you
+move the file manually, reopen the step so the extension can restore the
+file-to-task mapping.
 
-The template file is created only once. If the file already exists, the
-extension does not overwrite it, so you can keep working safely.
+### Other task types
 
-### Quizzes and other problem types
+Every checkable Stepik type is supported: `choice`, `string`, `number`, `math`,
+`free-answer`, `sorting`, `matching`, `table`, `fill-blanks`, `sql`, `html`,
+`dataset`, `chemical`, `puzzle`, and `code`.
 
-The task panel supports every graded Stepik type:
+Usually you fill in the form and click **Submit**. If the answer is wrong,
+details appear in a notification and in **Output → Stepik**.
 
-- **choice** — one or more options;
-- **string** — text answer;
-- **number** — numeric answer;
-- **math** — plain or LaTeX formula;
-- **free-answer** — long text;
-- **sorting** — drag and drop plus ↑/↓ buttons;
-- **matching** — dropdown lists;
-- **table** — checkboxes or radio buttons;
-- **fill-blanks** — text inputs and dropdowns;
-- **SQL** — SQL query;
-- **HTML/CSS** — HTML and CSS editors with a requirements checklist;
-- **dataset** — attempt data and a solution field;
-- **chemical** — chemical formula slots;
-- **puzzle** — assembled-puzzle checkbox;
-- **code** — a solution file in the editor.
-
-Typical workflow:
-
-1. Open a step.
-2. Fill in the form or select options.
-3. Click **Submit**.
-4. Wait for the result. A wrong answer shows a message or details in
-   **Output → Stepik**.
-5. **New attempt** creates a fresh attempt for quiz problems.
-
-For `string` problems that accept only a file and for `free-answer` problems
-with attachments, there is a limitation: the extension submits text only.
-Attach files on the Stepik website.
-
-`text` and `random-tasks` steps are shown as material. Opening them marks them
-as viewed, so course progress is updated.
-
-### Solutions forum
-
-The **Solutions** tab is available for every graded problem type. While the
-forum is locked, the tab explains the unlock condition and shows a **Check
-again** button.
-
-Solutions usually unlock:
-
-- after a correct answer;
-- or after a configured number of attempts.
-
-After you submit an answer, the extension rechecks forum access automatically.
-
-In the forum you can:
-
-- switch between comments and solutions;
-- sort the discussion;
-- expand replies;
-- attach one of your submitted solutions with the **My solution** list;
-- view the attached answer: code, selected options, sorting order, matching
-  pairs, table cells, blank values, SQL/HTML, or a dataset file;
-- see teacher solutions.
-
-If Stepik returns `403` or `404`, the forum is considered unavailable until the
-next check.
+`text` and `random-tasks` steps open as reading material and are marked as
+viewed automatically.
 
 ## Exams
 
-If a section is an exam, its steps stay hidden until the exam starts.
-
-1. Click **Start Exam** on the exam section.
+1. Click **Start exam** on an exam section.
 2. Confirm the start.
-3. The extension creates a Stepik exam session through the API and opens the
-   first step.
-4. The task panel shows a **Time left …** timer.
+3. The extension creates a session through the Stepik API and opens the first
+   step.
+4. A **Time left …** timer appears in the panel.
 
-When time runs out, submission buttons are locked. The exam cannot be started
-again.
-
-If an exam is already active on the website or in another window, the extension
-continues the existing session and opens its steps without creating a new one.
-An active session is restored after a window reload.
-
-Do not open the same exam in several windows at once: the timer and session
-state may diverge.
+Submissions are locked when time runs out. If the exam was already started on
+the website or in another window, the extension resumes the existing session.
 
 ## Video
 
-Video steps open in the built-in player. It provides:
+Video steps open in the built-in player with quality selection, subtitles, a
+preview, fullscreen mode, and a link to the original. Watching is recorded on
+Stepik automatically.
 
-- quality selection;
-- subtitles when Stepik provides them;
-- a poster and duration;
-- a link to the original;
-- a **Fullscreen** button;
-- an **Open in browser** button.
-
-Opening a step posts a view record to Stepik, so course progress advances
-without visiting the website.
-
-The Chromium build inside VS Code does not decode AAC audio in MP4 files. On
-first open, the extension downloads the video in the background, extracts the
-audio track, encodes it to MP3, and caches it. Progress is shown below the
-player. Later opens use the cache immediately.
-
-If sound does not start automatically, press **Enable sound**. If VS Code
-denies the Fullscreen API, the player switches to a theater overlay that fills
-the panel. **Open in browser** opens the video in the browser, where true
-fullscreen and native sound are available.
+VS Code's embedded Chromium cannot decode AAC audio from MP4, so on first open
+the extension downloads the video, extracts the audio track, converts it to
+MP3, and caches it. If audio does not start, click **Enable sound** or open the
+video in a browser.
 
 ## Comments and solutions
 
-The Stepik discussion is shown at the bottom of the task panel.
+- the first page of comments loads when a step opens;
+- further pages load on scroll;
+- pinned comments are shown separately;
+- replies expand with **Show replies (N)**;
+- votes, sorting, and teacher badges are supported;
+- your own comments can be edited, deleted, and copied as a link.
 
-### Comments
-
-- the first page of comments loads when a step is opened;
-- more pages load on scroll or with **Show more comments**;
-- pinned comments appear in a separate block;
-- replies open with **Show replies (N)**;
-- author, avatar, role, date, deleted comments, and pinned comments are shown;
-- code is highlighted;
-- HTML from Stepik is sanitized before insertion.
-
-Comments are available on every step, including `text` and `video`.
-
-### Sorting
-
-The following orders are available:
-
-- **Newest first**;
-- **Most discussed**;
-- **Most liked**;
-- **Recent activity**;
-- **Teacher replies first**;
-- **My comments** — your own comments and replies to other users.
-
-### Teacher highlighting
-
-- teacher comments are highlighted and marked **Teacher reply**;
-- the parent comment gets a border and a **Teacher replied** badge;
-- badges update after loading replies and after posting your own reply.
-
-### Posting a comment
-
-The rich editor with a live preview is shown by default. Use the **Markdown**
-button on the editor toolbar to switch to raw Markdown, and **Preview** to
-switch back.
-
-1. Scroll the task panel to the discussion.
-2. Type in the **Write a comment…** field.
-3. Use the formatting toolbar if needed:
-   - **B**, **I**, **U**, strikethrough, and inline code;
-   - superscript and subscript text;
-   - quote, bulleted list, and numbered list;
-   - code block with a language selector;
-   - LaTeX formula with a live preview and a link to the reference;
-   - image: insert from a file or drag and drop it into the editor;
-   - link with separate URL and text fields.
-4. Click **Send** or press `Ctrl+Enter`.
-
-To reply to a specific comment, click **Reply** below it. Your own comments
-have **Edit**, **Delete**, and **Link** actions; the last one copies a direct
-link to the comment.
-
-Markdown mode supports headings, lists, quotes, tables, strikethrough, inline
-code, fenced code, links, autolinks, and formulas. Raw HTML is not executed:
-Markdown is rendered with `html: false`, and the result is sanitized.
-
-### Comment voting
-
-- thumb-icon buttons with counters show the current score, matching Stepik;
-- clicking the active button removes the vote;
-- switching between like and dislike changes the vote;
-- counters update optimistically and roll back on error;
-- buttons are hidden when Stepik does not allow voting;
-- your own comments show static counts without buttons, because Stepik does
-  not allow voting for your own comments.
+The rich editor supports **B**, **I**, **U**, strikethrough, inline code,
+superscript, subscript, quotes, lists, code blocks, formulas, images, and
+links. The **Markdown** button switches to source mode; **Preview** returns to
+the live preview.
 
 ### Solutions forum
 
-The **Solutions** tab is next to **Comments**. It is available for every graded
-Stepik type, not only for code problems.
+The **Solutions** tab is available for every checkable task type. If the forum
+is closed, the panel explains the unlock condition and offers **Check again**.
 
-- tabs switch the discussion without visiting the website;
-- the tab header stays pinned while scrolling;
-- sorting and pagination also work for solutions;
-- replies load with a button;
-- the new-solution form lets you attach one of your submissions with
-  **My solution**;
-- teacher solutions are highlighted.
+In the forum you can sort the discussion, attach your submitted solution, view
+code, selected choices, sorting order, pairs, tables, blanks, SQL/HTML, or a
+file, and read teacher solutions.
 
-## Math
+## Formulas
 
-Formulas render in problem statements, answer options, and comments.
+Formulas render in statements, answer choices, and comments. Supported syntax
+includes `$...$`, `$$...$$`, `\(...\)`, `\[...\]`, fractions, roots, powers,
+integrals, and other KaTeX commands.
 
-Supported syntax:
+MathML output is used, so no external fonts are needed and the CSP stays strict.
+Cyrillic inside formulas is wrapped in `\text{...}` automatically.
 
-- `$...$` and `$$...$$`;
-- `\(...\)` and `\[...\]`;
-- `\dfrac`, `\sqrt`, fractions, powers, integrals, and other KaTeX commands.
-
-KaTeX emits MathML, so no external fonts or relaxed CSP are required. Cyrillic
-inside formulas is automatically wrapped in `\text{...}`. Content inside
-`<pre>`, `<code>`, `<script>`, `<style>`, and existing `<math>` blocks is not
-parsed.
-
-In the comment editor, the **Formula** button opens a dialog with a live KaTeX
-preview and a link to
-<http://en.wikibooks.org/wiki/LaTeX/Mathematics>. The formula is inserted as
-`\(...\)`.
-
-Inline formulas stay inline with the surrounding text, while display formulas
-are centered on their own line.
-
-## Commands and shortcuts
+## Commands
 
 Command palette: `Ctrl+Shift+P` (Windows/Linux) or `Cmd+Shift+P` (macOS).
 
 | Command | Action |
 | --- | --- |
 | **Stepik: Login** | Sign in with Client ID and Client Secret |
-| **Stepik: Logout** | Archive solutions, sign out, and remove saved credentials |
-| **Stepik: Archive Account Solutions** | Create a ZIP archive of the current account |
-| **Stepik: Refresh** | Reload the tree and progress |
-| **Stepik: Select Course** | Choose a course |
-| **Stepik: Browse Courses** | Catalog, recommendations, and course search |
+| **Stepik: Logout** | Archive solutions, sign out, and remove credentials |
+| **Stepik: Archive Account Solutions** | ZIP archive of the current account |
+| **Stepik: Refresh** | Refresh the tree and progress |
+| **Stepik: Select Course** | Choose a course from your list |
+| **Stepik: Browse Courses** | Catalog, recommendations, and search |
+| **Stepik: Show Notifications** | Stepik notifications |
+| **Stepik: Show Profile** | Profile and learning stats |
+| **Stepik: Change Interface Language** | Russian / English interface |
 | **Stepik: Submit Solution** | Submit the current solution file |
 
-**Stepik: Open Step** and **Stepik: Start Exam** are invoked from the UI and
-are hidden from the command palette.
-
-Shortcuts in the comment or solution editor:
+Comment editor shortcuts:
 
 | Keys | Action |
 | --- | --- |
@@ -490,15 +313,14 @@ Shortcuts in the comment or solution editor:
 | `Ctrl+I` | Italic |
 | `Ctrl+E` | Inline code |
 | `Ctrl+K` | Link |
-| `Ctrl+Enter` | Send a comment or solution |
+| `Ctrl+Enter` | Submit a comment or solution |
 
-On macOS, use `Cmd` instead of `Ctrl`. The extension has no separate user
-settings: everything is configured by logging in and selecting a course.
+Use `Cmd` instead of `Ctrl` on macOS.
 
 ## Solutions folder
 
-Solutions are stored in `~/stepik/<account-name>`, regardless of which folder
-is open in VS Code:
+Solutions live in `~/stepik/<account-name>` regardless of the folder opened in
+VS Code:
 
 ```text
 ~/stepik/
@@ -516,157 +338,97 @@ is open in VS Code:
     └── 1405465614.zip
 ```
 
-Files are named `step-<number>.<extension>`. The extension is chosen from the
-problem language: Python uses `.py`, C++ uses `.cpp`, Java uses `.java`, and so
-on.
+`.stepik/mapping.json` links an absolute file path to a Stepik task, and
+`.stepik/account.json` stores the account ID and name. Do not move files
+manually without reopening the step.
 
-The `.stepik/mapping.json` service file maps absolute file paths to Stepik
-steps. Without it, the submit command does not know which solution belongs to
-which step. `.stepik/account.json` stores the immutable account ID and name.
+## Accounts and archive
 
-Therefore:
-
-- `~/stepik` does not need to be opened as a workspace — the extension creates
-  it automatically on login;
-- you can work in any project: solutions are still saved in
-  `~/stepik/<account-name>`;
-- do not move solution files manually without reopening the step.
-
-If `~/stepik` is opened in VS Code anyway, the extension keeps working as
-usual.
-
-## Accounts and archives
-
-- An account is identified by an immutable Stepik ID and its display name.
-  Names may repeat, IDs never do. Two accounts with the same name therefore get
-  different folders: `<name>` and `<name> (<ID>)`.
-- Before logout or an account switch, the extension creates a ZIP archive at
-  `~/stepik/archive/<ID>.zip`. It contains all solutions and the `.stepik`
-  folder with `account.json` and `mapping.json`.
-- You can create the archive manually with
+- An account is identified by the immutable Stepik ID plus the name, so two
+  accounts with the same name get separate folders: `<name>` and
+  `<name> (<ID>)`.
+- Before logout or an account switch, a ZIP archive is written to
+  `~/stepik/archive/<ID>.zip` with all solutions and the `.stepik` folder.
+- You can create an archive manually with
   **Stepik: Archive Account Solutions**.
-- If archiving fails, logout is cancelled: credentials are kept and no data is
-  lost.
-- On the first launch of 0.4.2, the old `~/.stepik` folder is migrated into the
-  current account folder. Paths in `mapping.json` are rewritten, and the old
-  folder is kept as `~/.stepik.backup-<time>`.
-
-## Updating and uninstalling
-
-### Updating
-
-1. Download the new `.vsix` from **Releases**.
-2. Install it over the old version:
-   **Extensions → … → Install from VSIX…**.
-3. Reload the window.
-
-Saved OAuth credentials, the selected course, and solution files stay in place.
-
-### Uninstalling
-
-1. Open **Extensions** and find **Stepik**.
-2. Click **Uninstall**.
-3. Reload the window.
-
-You can also delete the `~/stepik` folder with your solutions and archives.
-Back it up first if you need the files. The **Stepik: Logout** command creates
-an archive first, then removes the saved credentials from VS Code.
+- If archiving fails, logout is cancelled — no data is lost.
+- The legacy `~/.stepik` folder from versions before 0.4.2 is migrated into the
+  first account folder and kept as `~/.stepik.backup-<timestamp>`.
 
 ## Troubleshooting
 
-### Login fails
+### Cannot sign in
 
-- Make sure the Stepik application uses `confidential` client type and the
-  `client-credentials` grant type.
-- Copy the Client ID and Client Secret again, without extra spaces.
-- Make sure you use the credentials of the application you created.
-- Check **Output → Stepik** and the error notification.
+- Check that the application uses client type `confidential` and grant type
+  `client-credentials`.
+- Copy the Client ID and Client Secret again without extra spaces.
+- Make sure the credentials belong to the intended application.
+- Open **Output → Stepik** and read the error.
 
-### No courses are listed
+### No courses in the list
 
 - Make sure you are enrolled in the course on stepik.org.
 - Run **Stepik: Refresh**.
-- Log out and log in again if the account changed.
+- Sign out and sign in again if the account changed.
 
 ### A step does not open
 
 - The section may be locked until previous lessons are completed.
-- An exam section requires pressing **Start Exam**.
-- Check whether the exam time has expired.
+- For an exam, click **Start exam** and check whether the time has expired.
 
-### Submission does not work
+### Solution submission fails
 
-- Make sure the `~/stepik/<account-name>` folder is writable.
-- Reopen the step from the tree to create or update the file-to-step mapping.
-- Check that the file was not moved after creation.
-- For an exam, check that the session is active and time has not expired.
+- Make sure `~/stepik/<account-name>` is writable.
+- Reopen the step to refresh the file-to-task mapping.
+- Do not move the file after it is created.
+- For an exam, check that the session is active.
 
-### An answer is rejected
+### No video sound
 
-- For `string` with a file-only answer, the extension submits text only.
-- Attachments in `free-answer` are not supported.
-- Check the answer format: a number for `number`, a formula for `math`.
-- For HTML/CSS, check the checklist items in the panel.
-
-### Solutions do not open
-
-- The forum may unlock after a correct answer or after several attempts.
-- Press **Check again**.
-- If Stepik returns `403/404`, access is restricted on Stepik's side.
-
-### No sound in a video
-
-- Wait for the download and conversion to finish; progress is shown below the
+- Wait for download and conversion to finish — progress is shown below the
   player.
-- Press **Enable sound** if autoplay is blocked.
-- Press **Open in browser**; native sound and fullscreen work there.
+- Click **Enable sound** if autoplay is blocked.
+- Open the video in a browser, where sound and fullscreen work natively.
 
-### API errors
+## Requirements
 
-- Open **Output → Stepik**.
-- Run **Stepik: Refresh**.
-- Reload the window: **Developer: Reload Window**.
-- The Stepik API may change without notice; if the error persists, check the
-  repository Issues.
+- VS Code 1.85 or newer;
+- a [stepik.org](https://stepik.org) account;
+- your own Stepik OAuth application;
+- Node.js 18+ only when building from source.
+
+The extension is not an official Stepik client. It uses the public Stepik API
+and your OAuth credentials.
 
 ## Building from source
-
-Node.js 18+ is required.
 
 ```bash
 npm ci
 npm run build
+npx tsc --noEmit
 npx @vscode/vsce package
 ```
 
-Type check:
-
-```bash
-npx tsc --noEmit
-```
-
 Build output: `dist/extension.js` and `dist/audioWorker.js`.
-Installable package: `stepik-vscode-fork-0.4.4.vsix`.
+Installer: `stepik-vscode-fork-0.4.7.vsix`.
 
 ## Limitations
 
 - a Stepik account and your own OAuth application are required;
-- posting comments, voting, and the solutions forum depend on account
+- comment posting, voting, and the solutions forum depend on account
   permissions and Stepik restrictions;
-- file answers and `free-answer` attachments are not supported;
-- this is not an official Stepik client;
+- file answers and attachments in `free-answer` are not supported;
 - the Stepik API may change without notice;
-- the built-in player depends on the codecs and Chromium capabilities in
+- the built-in player depends on the codec and Chromium capabilities in
   VS Code.
 
 ## Author
 
-The project author is **Danil Proskurin**  
+**Danil Proskurin**  
 Alias: **꧁༒☬𝔉𝔜𝔡𝔡𝔡𝔡𝔰𝔰☬༒꧂**
 
-Repository: <https://github.com/danilproskurin291-cmd/stepik-vscode>
-
-Original project: <https://github.com/su-mt/stepik-vscode>
+- Repository: <https://github.com/danilproskurin291-cmd/stepik-vscode>
+- Original project: <https://github.com/su-mt/stepik-vscode>
 
 ## License
 

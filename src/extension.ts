@@ -5,10 +5,13 @@ import { StepikTreeProvider } from './providers/treeProvider';
 import { StepikApi } from './api/stepikApi';
 import { StepikWebview } from './views/webview';
 import { CourseCatalogView } from './views/courseCatalog';
+import { StepikNotificationsView } from './views/notifications';
+import { StepikProfileView } from './views/profile';
 import { StepikSubmit } from './submit';
 import { StepContext } from './stepContext';
 import { getActiveSolutionRoot } from './stepikPaths';
 import { AccountWorkspace } from './accountWorkspace';
+import { t } from './i18n';
 
 let api: StepikApi;
 let treeProvider: StepikTreeProvider;
@@ -22,11 +25,11 @@ function ensureSolutionDirectory(outputChannel: vscode.OutputChannel): void {
     const folder = getActiveSolutionRoot();
     try {
         fs.mkdirSync(folder, { recursive: true });
-        outputChannel.appendLine(`[Solutions] Папка решений: ${folder}`);
+        outputChannel.appendLine(`[Solutions] ${t('ext.solutionsFolder', { path: folder })}`);
     } catch (error) {
         const detail = error instanceof Error ? error.message : String(error);
         vscode.window.showErrorMessage(
-            `Не удалось создать папку решений ${folder}: ${detail}`
+            t('ext.solutionsFolderError', { path: folder, detail })
         );
     }
 }
@@ -42,6 +45,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     const accountWorkspace = new AccountWorkspace(api, outputChannel);
     const webview = new StepikWebview(context, api, treeProvider, outputChannel);
     const catalog = new CourseCatalogView(context, api, treeProvider, outputChannel);
+    const notifications = new StepikNotificationsView(context, api, outputChannel);
+    const profile = new StepikProfileView(context, api, outputChannel);
     const submit = new StepikSubmit(api, treeProvider, outputChannel);
 
     // Register tree view
@@ -59,7 +64,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             const title = course.title.replace(/^(?:\s*Stepik\s*:\s*)+/i, '').trim();
             treeView.title = title || course.title;
         } else {
-            treeView.title = 'Выберите курс';
+            treeView.title = t('ext.treeNoCourse');
         }
     };
     updateTreeTitle();
@@ -70,10 +75,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         treeProvider.onDidChangeTreeData(() => updateTreeTitle())
     );
 
+    /** Rebuild every localized surface after the language setting changes. */
+    const applyLanguage = () => {
+        updateTreeTitle();
+        treeProvider.refresh();
+        profile.refreshLocalization();
+        notifications.refreshLocalization();
+        catalog.refreshLocalization();
+        webview.refreshLocalization();
+    };
+
     // Register commands
     context.subscriptions.push(
         webview,
         catalog,
+        notifications,
+        profile,
 
         vscode.commands.registerCommand('stepik.login', async () => {
             const loggedIn = await auth.login();
@@ -86,17 +103,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
                 ensureSolutionDirectory(outputChannel);
                 if (state.migratedLegacy) {
                     vscode.window.showInformationMessage(
-                        `Данные Stepik 0.4.1 перенесены в ${state.folder}`
+                        t('ext.legacyMigrated', { path: state.folder })
                     );
                 }
             } catch (error) {
                 const detail = error instanceof Error ? error.message : String(error);
                 outputChannel.appendLine(
-                    `[Account] Не удалось подготовить папку аккаунта: ${detail}`
+                    `[Account] ${t('ext.accountFolderError', { detail })}`
                 );
                 vscode.window.showErrorMessage(
-                    `Не удалось подготовить папку аккаунта: ${detail}`
+                    t('ext.accountFolderError', { detail })
                 );
+            }
+            if (loggedIn) {
+                notifications.start();
             }
             treeProvider.refresh();
         }),
@@ -105,9 +125,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             const archive = await accountWorkspace.archiveCurrentAccount();
             if (!archive.ok) {
                 vscode.window.showErrorMessage(
-                    `Не удалось архивировать решения перед выходом: ${
-                        archive.error || 'неизвестная ошибка'
-                    }. Выход отменён, данные не удалены.`
+                    t('ext.archiveBeforeLogoutError', {
+                        detail: archive.error || t('ext.unknownError')
+                    })
                 );
                 return;
             }
@@ -115,6 +135,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             api.clearCache();
             webview.resetForLogout();
             catalog.resetForLogout();
+            notifications.resetForLogout();
+            profile.resetForLogout();
             accountWorkspace.clearActiveAccount();
             treeProvider.refresh();
         }),
@@ -123,20 +145,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             const result = await accountWorkspace.archiveCurrentAccount();
             if (!result.ok) {
                 vscode.window.showErrorMessage(
-                    `Не удалось архивировать решения: ${
-                        result.error || 'неизвестная ошибка'
-                    }`
+                    t('ext.archiveError', {
+                        detail: result.error || t('ext.unknownError')
+                    })
                 );
                 return;
             }
             if (result.path) {
                 vscode.window.showInformationMessage(
-                    `Архив решений сохранён: ${result.path}`
+                    t('ext.archiveSaved', { path: result.path })
                 );
             } else {
-                vscode.window.showInformationMessage(
-                    'Нет активного аккаунта для архивирования.'
-                );
+                vscode.window.showInformationMessage(t('ext.noAccount'));
             }
         }),
 
@@ -156,9 +176,67 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             catalog.show();
         }),
 
+        vscode.commands.registerCommand('stepik.showNotifications', () => {
+            notifications.show();
+        }),
+
+        vscode.commands.registerCommand('stepik.showProfile', () => {
+            profile.show();
+        }),
+
+        vscode.commands.registerCommand('stepik.changeLanguage', async () => {
+            const config = vscode.workspace.getConfiguration('stepik');
+            const current = config.get<string>('language', 'auto');
+            const options = [
+                {
+                    label: t('ext.languageAuto'),
+                    description: current === 'auto' ? '✓' : '',
+                    value: 'auto'
+                },
+                {
+                    label: t('ext.languageRussian'),
+                    description: current === 'ru' ? '✓' : '',
+                    value: 'ru'
+                },
+                {
+                    label: t('ext.languageEnglish'),
+                    description: current === 'en' ? '✓' : '',
+                    value: 'en'
+                }
+            ];
+            const picked = await vscode.window.showQuickPick(options, {
+                placeHolder: t('ext.languagePick')
+            });
+            if (!picked) {
+                return;
+            }
+            await config.update(
+                'language',
+                picked.value,
+                vscode.ConfigurationTarget.Global
+            );
+            // Read the label after the update so the confirmation uses the
+            // language that is now active, not the previous one.
+            const languageLabel =
+                picked.value === 'ru'
+                    ? t('ext.languageRussian')
+                    : picked.value === 'en'
+                        ? t('ext.languageEnglish')
+                        : t('ext.languageAuto');
+            vscode.window.showInformationMessage(
+                t('ext.languageChanged', { language: languageLabel })
+            );
+        }),
+
+        vscode.workspace.onDidChangeConfiguration(event => {
+            if (event.affectsConfiguration('stepik.language')) {
+                applyLanguage();
+            }
+        }),
+
         vscode.commands.registerCommand('stepik.openStep', async (stepContext: StepContext) => {
             if (!stepContext?.step) {
-                vscode.window.showErrorMessage('Не удалось определить шаг Stepik.');
+                vscode.window.showErrorMessage(t('ext.stepNotFound'));
                 return;
             }
             await webview.showStep(stepContext);
@@ -169,14 +247,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             async (args?: { sectionId?: number; sectionTitle?: string }) => {
                 const sectionId = args?.sectionId;
                 if (!sectionId) {
-                    vscode.window.showErrorMessage('Не удалось определить экзаменационную секцию.');
+                    vscode.window.showErrorMessage(t('ext.examSectionNotFound'));
                     return;
                 }
 
                 try {
                     const state = await treeProvider.getSectionAccessById(sectionId, true);
                     if (!state) {
-                        vscode.window.showErrorMessage('Не удалось загрузить экзаменационную секцию.');
+                        vscode.window.showErrorMessage(t('ext.examSectionLoadError'));
                         return;
                     }
 
@@ -185,18 +263,22 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
                     if (access.isExam && !examSession) {
                         if (!access.canStartExam) {
                             vscode.window.showWarningMessage(
-                                access.reason || 'Экзамен сейчас недоступен.'
+                                access.reason || t('ext.examUnavailable')
                             );
                             return;
                         }
 
                         const minutes = state.section.exam_duration_minutes || 120;
+                        const startExam = t('ext.examStartButton');
                         const confirmation = await vscode.window.showWarningMessage(
-                            `Начать экзамен «${state.section.title}»? После старта запустится таймер на ${minutes} мин, и материалы экзамена станут доступны.`,
+                            t('ext.examStartConfirm', {
+                                title: state.section.title,
+                                minutes
+                            }),
                             { modal: true },
-                            'Начать экзамен'
+                            startExam
                         );
-                        if (confirmation !== 'Начать экзамен') {
+                        if (confirmation !== startExam) {
                             return;
                         }
 
@@ -206,15 +288,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
                     const firstStep = await treeProvider.getFirstStep(sectionId);
                     if (!firstStep) {
-                        vscode.window.showInformationMessage(
-                            'В экзаменационной секции нет доступных шагов.'
-                        );
+                        vscode.window.showInformationMessage(t('ext.examNoSteps'));
                         return;
                     }
                     await webview.showStep(firstStep, examSession);
                 } catch (error) {
                     const detail = error instanceof Error ? error.message : String(error);
-                    vscode.window.showErrorMessage(`Не удалось начать экзамен: ${detail}`);
+                    vscode.window.showErrorMessage(
+                        t('ext.examStartError', { detail })
+                    );
                 }
             }
         ),
@@ -238,19 +320,20 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             );
             if (state.migratedLegacy) {
                 vscode.window.showInformationMessage(
-                    `Данные Stepik 0.4.1 перенесены в ${state.folder}`
+                    t('ext.legacyMigrated', { path: state.folder })
                 );
             }
         } catch (error) {
             const detail = error instanceof Error ? error.message : String(error);
             outputChannel.appendLine(
-                `[Account] Не удалось подготовить папку аккаунта: ${detail}`
+                `[Account] ${t('ext.accountFolderError', { detail })}`
             );
             vscode.window.showWarningMessage(
-                `Не удалось подготовить папку аккаунта Stepik: ${detail}. Решения сохраняются в общей папке ~/stepik.`
+                t('ext.accountFolderWarning', { detail })
             );
         }
         treeProvider.refresh();
+        notifications.start();
     }
 
     // Prepare the solutions folder. It is independent of the open workspace

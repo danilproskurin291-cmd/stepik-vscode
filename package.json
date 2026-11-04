@@ -3,9 +3,14 @@
 	"displayName": "Stepik Fork",
 	"description": "Fork of Stepik for VS Code: solve Stepik problems, read discussions and post comments",
 	"author": "Danil Proskurin (꧁༒☬𝔉𝔜𝔡𝔡𝔡𝔡𝔰𝔰☬༒꧂)",
-	"version": "0.4.4",
+	"version": "0.4.7",
 	"publisher": "FYddddss",
 	"license": "GPL-3.0-only",
+	"icon": "resources/icon.png",
+	"galleryBanner": {
+		"color": "#54ad54",
+		"theme": "dark"
+	},
 	"engines": {
 		"vscode": "^1.85.0"
 	},
@@ -22,11 +27,15 @@
 		"fork"
 	],
 	"activationEvents": [
+		"onStartupFinished",
 		"onView:stepikCourses",
 		"onCommand:stepik.login",
 		"onCommand:stepik.selectCourse",
 		"onCommand:stepik.browseCourses",
-		"onCommand:stepik.startExam"
+		"onCommand:stepik.showNotifications",
+		"onCommand:stepik.showProfile",
+		"onCommand:stepik.startExam",
+		"onCommand:stepik.changeLanguage"
 	],
 	"main": "./dist/extension.js",
 	"contributes": {
@@ -74,6 +83,21 @@
 				"command": "stepik.browseCourses",
 				"title": "Stepik: Browse Courses",
 				"icon": "$(search)"
+			},
+			{
+				"command": "stepik.showNotifications",
+				"title": "Stepik: Show Notifications",
+				"icon": "$(bell)"
+			},
+			{
+				"command": "stepik.showProfile",
+				"title": "Stepik: Show Profile",
+				"icon": "$(account)"
+			},
+			{
+				"command": "stepik.changeLanguage",
+				"title": "Stepik: Change Interface Language",
+				"icon": "$(globe)"
 			}
 		],
 		"viewsContainers": {
@@ -107,24 +131,39 @@
 			],
 			"view/title": [
 				{
-					"command": "stepik.selectCourse",
+					"command": "stepik.showNotifications",
 					"when": "view == stepikCourses",
 					"group": "navigation@0"
 				},
 				{
-					"command": "stepik.refresh",
+					"command": "stepik.showProfile",
 					"when": "view == stepikCourses",
 					"group": "navigation@1"
 				},
 				{
-					"command": "stepik.logout",
+					"command": "stepik.selectCourse",
 					"when": "view == stepikCourses",
 					"group": "navigation@2"
 				},
 				{
-					"command": "stepik.login",
+					"command": "stepik.refresh",
 					"when": "view == stepikCourses",
 					"group": "navigation@3"
+				},
+				{
+					"command": "stepik.logout",
+					"when": "view == stepikCourses",
+					"group": "navigation@4"
+				},
+				{
+					"command": "stepik.login",
+					"when": "view == stepikCourses",
+					"group": "navigation@5"
+				},
+				{
+					"command": "stepik.changeLanguage",
+					"when": "view == stepikCourses",
+					"group": "navigation@6"
 				}
 			],
 			"editor/title": [
@@ -134,6 +173,27 @@
 					"group": "navigation"
 				}
 			]
+		},
+		"configuration": {
+			"title": "Stepik",
+			"properties": {
+				"stepik.language": {
+					"type": "string",
+					"enum": [
+						"auto",
+						"ru",
+						"en"
+					],
+					"enumDescriptions": [
+						"Follow the VS Code display language",
+						"Русский",
+						"English"
+					],
+					"default": "auto",
+					"description": "Interface language for Stepik panels, notifications, profile and catalog.",
+					"scope": "window"
+				}
+			}
 		}
 	},
 	"scripts": {

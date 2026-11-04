@@ -1,4 +1,5 @@
 import { Course, ExamSession, Section } from '../api/stepikApi';
+import { t } from '../i18n';
 
 export interface SectionAccess {
     isExam: boolean;
@@ -120,24 +121,26 @@ export function getSectionAccess(
 
     let reason: string | undefined;
     if (!isActive) {
-        reason = 'Секция скрыта преподавателем.';
+        reason = t('exam.sectionHidden');
     } else if (isFinished) {
-        reason = endDate ? `Секция закрыта ${formatDate(endDate)}.` : 'Секция закрыта.';
+        reason = endDate
+            ? t('exam.sectionClosedAt', { date: formatDate(endDate) })
+            : t('exam.sectionClosed');
     } else if (isHardDeadlinePassed) {
         reason = hardDeadline
-            ? `Срок прохождения истёк ${formatDate(hardDeadline)}.`
-            : 'Срок прохождения истёк.';
+            ? t('exam.deadlinePassedAt', { date: formatDate(hardDeadline) })
+            : t('exam.deadlinePassed');
     } else if (!isStarted && beginDate) {
-        reason = `Секция откроется ${formatDate(beginDate)}.`;
+        reason = t('exam.sectionOpensAt', { date: formatDate(beginDate) });
     } else if (!requirementsSatisfied) {
         const percent = section.required_percent;
         reason = percent
-            ? `Сначала пройдите предыдущий модуль не менее чем на ${percent}%.`
-            : 'Сначала пройдите предыдущий модуль.';
+            ? t('exam.requirementPercent', { percent })
+            : t('exam.requirement');
     } else if (isExam && !examSession) {
         reason = examFinished
-            ? 'Экзамен завершён. Повторный старт недоступен.'
-            : 'Экзамен ещё не начат. Нажмите «Начать экзамен».';
+            ? t('exam.finishedNoRestart')
+            : t('exam.notStarted');
     }
 
     let description: string | undefined;
@@ -145,21 +148,23 @@ export function getSectionAccess(
         if (examSession) {
             const timeLeft = getSessionTimeLeft(examSession, now);
             description = timeLeft !== undefined
-                ? `Экзамен · осталось ${formatDuration(timeLeft)}`
-                : 'Экзамен идёт';
+                ? t('exam.timeLeft', { time: formatDuration(timeLeft) })
+                : t('exam.inProgress');
         } else if (canStartExam) {
-            description = `Экзамен · ${section.exam_duration_minutes || 120} мин`;
+            description = t('exam.duration', {
+                minutes: section.exam_duration_minutes || 120
+            });
         } else if (examFinished) {
-            description = 'Экзамен завершён';
+            description = t('exam.finished');
         } else {
-            description = 'Экзамен недоступен';
+            description = t('exam.unavailable');
         }
     } else if (isHardDeadlinePassed) {
-        description = 'Срок истёк';
+        description = t('exam.expired');
     } else if (isSoftDeadlinePassed) {
-        description = 'Дедлайн прошёл';
+        description = t('exam.softDeadlinePassed');
     } else if (!requirementsSatisfied) {
-        description = 'Нужен предыдущий модуль';
+        description = t('exam.requirementShort');
     }
 
     const canOpenStep = Boolean(

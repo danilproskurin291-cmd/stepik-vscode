@@ -12,6 +12,7 @@ import {
 } from '../api/stepikApi';
 import { StepContext } from '../stepContext';
 import { getStepTypeLabel } from '../stepTypes';
+import { pluralize, t } from '../i18n';
 import {
     SectionAccess,
     formatDuration,
@@ -93,28 +94,28 @@ export class StepikTreeProvider implements vscode.TreeDataProvider<TreeItemData>
 
         const items: CoursePickItem[] = courses.map(course => ({
             label: course.title,
-            description: `${course.sections.length} секций`,
+            description: `${course.sections.length} ${pluralize(course.sections.length, 'tree.sections')}`,
             iconPath: new vscode.ThemeIcon('book'),
             course
         }));
 
         if (items.length > 0) {
             items.push({
-                label: 'Другие курсы',
+                label: t('tree.otherCourses'),
                 kind: vscode.QuickPickItemKind.Separator
             });
         }
 
         items.push({
-            label: 'Выбрать другой курс…',
-            description: 'Рекомендации, каталог и поиск',
+            label: t('tree.browseCourse'),
+            description: t('tree.browseDescription'),
             iconPath: new vscode.ThemeIcon('search'),
             browse: true
         });
 
         const selected = await vscode.window.showQuickPick(items, {
-            placeHolder: 'Выберите курс или откройте каталог',
-            title: 'Stepik: выбор курса'
+            placeHolder: t('tree.selectPlaceholder'),
+            title: t('tree.selectTitle')
         });
 
         if (!selected) {
@@ -247,11 +248,11 @@ export class StepikTreeProvider implements vscode.TreeDataProvider<TreeItemData>
         }
         const state = await this.getSectionAccessById(sectionId, true);
         if (!state) {
-            return { ok: false, reason: 'Не удалось проверить доступ к секции.' };
+            return { ok: false, reason: t('tree.accessError') };
         }
         return {
             ok: state.access.canSubmit,
-            reason: state.access.reason || 'Отправка решений для этой секции сейчас недоступна.'
+            reason: state.access.reason || t('tree.submitUnavailable')
         };
     }
 
@@ -358,7 +359,7 @@ export class StepikTreeProvider implements vscode.TreeDataProvider<TreeItemData>
             case 'info':
                 return this.createInfoItem(element);
             default:
-                return new vscode.TreeItem('Неизвестный элемент');
+                return new vscode.TreeItem(t('tree.unknownItem'));
         }
     }
 
@@ -393,7 +394,7 @@ export class StepikTreeProvider implements vscode.TreeDataProvider<TreeItemData>
                     } catch (error) {
                         // A failed exam-session request must not hide an
                         // ordinary section; fall back to the section fields.
-                        this.logError(`Не удалось проверить доступ к секции ${section.id}`, error);
+                        this.logError(t('tree.accessLog', { id: section.id }), error);
                     }
                     items.push({
                         type: 'section',
@@ -431,7 +432,7 @@ export class StepikTreeProvider implements vscode.TreeDataProvider<TreeItemData>
                             section,
                             courseName: element.courseName,
                             access,
-                            infoText: access.reason || 'Экзамен недоступен',
+                            infoText: access.reason || t('tree.examUnavailable'),
                             infoIcon: 'lock'
                         }];
                     }
@@ -442,7 +443,7 @@ export class StepikTreeProvider implements vscode.TreeDataProvider<TreeItemData>
                             section,
                             courseName: element.courseName,
                             access,
-                            infoText: access.reason || 'Секция недоступна',
+                            infoText: access.reason || t('tree.sectionUnavailable'),
                             infoIcon: 'lock'
                         }];
                     }
@@ -519,19 +520,20 @@ export class StepikTreeProvider implements vscode.TreeDataProvider<TreeItemData>
     private handleTreeError(error: unknown): void {
         const isAuthError =
             error instanceof StepikApiError && error.status === 401;
-        if (isAuthError || String(error).includes('Not authenticated') || String(error).includes('Сессия Stepik')) {
+        if (isAuthError || String(error).includes('Not authenticated') || /session has expired/i.test(String(error)) || String(error).includes('Сессия Stepik')) {
+            const signIn = t('tree.loginButton');
             vscode.window.showWarningMessage(
-                'Сессия Stepik истекла. Выполните вход заново.',
-                'Войти'
+                t('tree.sessionExpired'),
+                signIn
             ).then(selection => {
-                if (selection === 'Войти') {
+                if (selection === signIn) {
                     vscode.commands.executeCommand('stepik.login');
                 }
             });
             return;
         }
-        this.logError('Ошибка загрузки данных Stepik', error);
-        vscode.window.showErrorMessage(`Ошибка загрузки данных Stepik: ${error}`);
+        this.logError(t('tree.loadError', { detail: String(error) }), error);
+        vscode.window.showErrorMessage(t('tree.loadError', { detail: String(error) }));
     }
 
     private logError(message: string, error: unknown): void {
@@ -590,16 +592,18 @@ export class StepikTreeProvider implements vscode.TreeDataProvider<TreeItemData>
     private getSectionTooltip(section: Section, access: SectionAccess): string {
         const lines: string[] = [section.title];
         if (access.isExam) {
-            lines.push('Экзаменационная секция');
+            lines.push(t('tree.examSection'));
             if (access.examSession) {
                 const timeLeft = getSessionTimeLeft(access.examSession);
                 if (timeLeft !== undefined) {
-                    lines.push(`Осталось: ${formatDuration(timeLeft)}`);
+                    lines.push(t('tree.examTimeLeft', { time: formatDuration(timeLeft) }));
                 }
-                lines.push('Нажмите на секцию, чтобы продолжить экзамен.');
+                lines.push(t('tree.examContinue'));
             } else if (access.canStartExam) {
-                lines.push(`Длительность: ${section.exam_duration_minutes || 120} мин.`);
-                lines.push('Раскройте секцию и нажмите «Начать экзамен».');
+                lines.push(t('tree.examDuration', {
+                    minutes: section.exam_duration_minutes || 120
+                }));
+                lines.push(t('tree.examExpand'));
             } else if (access.reason) {
                 lines.push(access.reason);
             }
@@ -634,7 +638,10 @@ export class StepikTreeProvider implements vscode.TreeDataProvider<TreeItemData>
     private createStepItem(element: TreeItemData): vscode.TreeItem {
         const step = element.step!;
         const stepType = step.block.name;
-        const label = `Шаг ${step.position}: ${getStepTypeLabel(stepType)}`;
+        const label = t('tree.stepLabel', {
+            position: step.position,
+            type: getStepTypeLabel(stepType)
+        });
 
         const item = new vscode.TreeItem(label, vscode.TreeItemCollapsibleState.None);
 
@@ -663,7 +670,7 @@ export class StepikTreeProvider implements vscode.TreeDataProvider<TreeItemData>
         item.contextValue = 'step';
         item.command = {
             command: 'stepik.openStep',
-            title: 'Открыть шаг',
+            title: t('tree.openStep'),
             arguments: [context]
         };
         return item;
@@ -673,16 +680,16 @@ export class StepikTreeProvider implements vscode.TreeDataProvider<TreeItemData>
         const section = element.section!;
         const minutes = section.exam_duration_minutes || 120;
         const item = new vscode.TreeItem(
-            '▶ Начать экзамен',
+            t('tree.startExam'),
             vscode.TreeItemCollapsibleState.None
         );
         item.iconPath = new vscode.ThemeIcon('play', STATUS_STARTED);
-        item.description = `${minutes} мин`;
-        item.tooltip = 'Создать экзаменационную сессию и открыть первый шаг.';
+        item.description = t('tree.minutes', { minutes });
+        item.tooltip = t('tree.startExamTooltip');
         item.contextValue = 'examAction';
         item.command = {
             command: 'stepik.startExam',
-            title: 'Начать экзамен',
+            title: t('tree.startExamTitle'),
             arguments: [{ sectionId: section.id, sectionTitle: section.title }]
         };
         return item;
@@ -690,7 +697,7 @@ export class StepikTreeProvider implements vscode.TreeDataProvider<TreeItemData>
 
     private createInfoItem(element: TreeItemData): vscode.TreeItem {
         const item = new vscode.TreeItem(
-            element.infoText || 'Недоступно',
+            element.infoText || t('tree.unavailable'),
             vscode.TreeItemCollapsibleState.None
         );
         item.iconPath = new vscode.ThemeIcon(element.infoIcon || 'lock', STATUS_LOCKED);

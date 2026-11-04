@@ -4,10 +4,17 @@ import { parentPort, workerData } from 'worker_threads';
 import { decoder } from '@audio/decode-mp4';
 import { createMp3Encoder } from 'wasm-media-encoders';
 
+interface AudioWorkerMessages {
+    downloadFailed: string;
+    noStream: string;
+    noTrack: string;
+}
+
 interface AudioWorkerData {
     url: string;
     inputPath: string;
     outputPath: string;
+    messages: AudioWorkerMessages;
 }
 
 type AudioWorkerMessage =
@@ -17,6 +24,14 @@ type AudioWorkerMessage =
 
 const CHUNK_SIZE = 1024 * 1024;
 const MP3_BITRATE = 96;
+const MESSAGES = (workerData as AudioWorkerData).messages;
+
+function formatMessage(template: string, params: Record<string, string | number>): string {
+    return template.replace(/\{(\w+)\}/g, (match, key: string) => {
+        const value = params[key];
+        return value === undefined ? match : String(value);
+    });
+}
 
 function post(message: AudioWorkerMessage): void {
     parentPort?.postMessage(message);
@@ -31,7 +46,12 @@ async function download(url: string, inputPath: string): Promise<void> {
 
     const response = await fetch(url);
     if (!response.ok) {
-        throw new Error(`Не удалось скачать видео: ${response.status} ${response.statusText}`);
+        throw new Error(
+            formatMessage(MESSAGES.downloadFailed, {
+                status: response.status,
+                statusText: response.statusText
+            })
+        );
     }
 
     const total = Number(response.headers.get('content-length')) || 0;
@@ -39,7 +59,7 @@ async function download(url: string, inputPath: string): Promise<void> {
 
     try {
         if (!response.body) {
-            throw new Error('Сервер не вернул поток видео.');
+            throw new Error(MESSAGES.noStream);
         }
         const reader = response.body.getReader();
         let loaded = 0;
@@ -115,7 +135,7 @@ async function transcode(inputPath: string, outputPath: string): Promise<void> {
 
         encode(await mp4.flush());
         if (!configured) {
-            throw new Error('В видео не найдена звуковая дорожка.');
+            throw new Error(MESSAGES.noTrack);
         }
         const tail = encoder.finalize();
         if (tail.length > 0) {

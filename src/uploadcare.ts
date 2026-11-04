@@ -1,3 +1,5 @@
+import { t } from './i18n';
+
 /**
  * Uploadcare proxy used by stepik.org for comment images.
  *
@@ -31,7 +33,7 @@ async function fetchWithTimeout(
         return await fetch(url, { ...init, signal: controller.signal });
     } catch (error) {
         if (controller.signal.aborted) {
-            throw new Error(`Загрузка изображения не завершилась за ${Math.round(timeoutMs / 1000)} с.`);
+            throw new Error(t('upload.timeout', { seconds: Math.round(timeoutMs / 1000) }));
         }
         throw error;
     } finally {
@@ -66,12 +68,15 @@ export async function uploadCommentImage(
         body: form
     });
     if (!response.ok) {
-        throw new Error(`Uploadcare вернул HTTP ${response.status} ${response.statusText}`);
+        throw new Error(t('upload.httpError', {
+            status: response.status,
+            statusText: response.statusText
+        }));
     }
 
     const uploaded = (await response.json()) as { file?: string; error?: string };
     if (!uploaded.file) {
-        throw new Error(uploaded.error || 'Uploadcare не вернул идентификатор файла.');
+        throw new Error(uploaded.error || t('upload.missingId'));
     }
 
     const id = uploaded.file;

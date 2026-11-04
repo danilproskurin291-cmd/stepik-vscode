@@ -15,6 +15,7 @@ import {
     getStepikServiceDir,
     resolveAccountDir
 } from './stepikPaths';
+import { t } from './i18n';
 
 export interface StepikIdentity {
     id: number;
@@ -147,7 +148,7 @@ export class AccountWorkspace {
         const user = await this.api.getCurrentUser();
         const identity: StepikIdentity = {
             id: user.id,
-            name: user.fullName || user.alias || `Аккаунт ${user.id}`,
+            name: user.fullName || user.alias || t('account.fallbackName', { id: user.id }),
             alias: user.alias ?? undefined,
             avatar: user.avatar ?? undefined
         };
@@ -160,7 +161,7 @@ export class AccountWorkspace {
         migratedLegacy: boolean;
     } {
         if (!Number.isInteger(identity.id) || identity.id <= 0) {
-            throw new Error('Stepik не вернул корректный ID аккаунта.');
+            throw new Error(t('account.invalidId'));
         }
 
         const root = getStepikRoot();
@@ -193,7 +194,7 @@ export class AccountWorkspace {
 
         const accountDir = resolveAccountDir(record.folder);
         if (!accountDir) {
-            throw new Error(`Некорректная папка аккаунта: ${record.folder}`);
+            throw new Error(t('account.invalidFolder', { folder: record.folder }));
         }
         fs.mkdirSync(path.join(accountDir, '.stepik'), { recursive: true });
 

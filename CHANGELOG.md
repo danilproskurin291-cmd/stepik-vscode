@@ -1,5 +1,82 @@
 # Changelog
 
+## [0.4.7] - 2026-11-04
+
+### Added
+
+- Stepik-style visual theme shared by every webview: brand top bar, accent
+  palette, typography, cards, buttons, progress bars, and the heatmap. Light,
+  dark, and high-contrast VS Code themes are supported without losing
+  readability.
+- Switchable interface language. The new `stepik.language` setting accepts
+  `auto`, `ru`, and `en`; `auto` follows the VS Code display language.
+- **Stepik: Change Interface Language** command and a title-bar button in the
+  Stepik view. The change applies to open panels immediately.
+- Russian and English dictionaries for panels, tree items, notifications,
+  authentication prompts, output messages, and errors. Russian plurals are
+  handled with proper plural forms.
+- New 128×128 marketplace icon and a Stepik-green gallery banner.
+- Privacy-safe screenshots and rewritten README files covering OAuth setup,
+  login, the catalog, the task panel, notifications, and the profile.
+
+### Changed
+
+- Profile header typography was adjusted so long names wrap without overlapping
+  the avatar or the user ID.
+- Session-expiry detection now recognizes both Russian and English Stepik
+  messages.
+- Documentation is synchronized across `README.md` and `README.en.md`.
+
+### Fixed
+
+- Webviews could keep stale HTML after an extension update; panels now rebuild
+  their markup on reload.
+- Profile padding and line height no longer clip descenders in long names.
+- The English interface no longer falls back to Russian for profile counters,
+  certificate labels, and profile error messages.
+- Quiz result notifications and the language-change confirmation use the
+  selected interface language instead of the previous one.
+
+## [0.4.6] - 2026-11-04
+
+### Added
+
+- Background notification watcher with persisted catch-up state. New events are
+  shown as VS Code toasts, and unread notifications are restored after a
+  restart.
+- Notifications panel with history, unread counters, mark-as-read actions, and
+  a dedicated empty state.
+- Profile improvements: hover details, profile editing, and a public preview of
+  the profile as other learners see it.
+
+### Fixed
+
+- Certificate progress and completion counters now match the values returned by
+  Stepik.
+
+## [0.4.5] - 2026-11-04
+
+### Added
+
+- Infinite scrolling in the course catalog. When the last cards approach the
+  viewport, the next 20 courses are appended automatically.
+- The page after the visible one is prefetched in the background together with
+  its cover images, so scrolling at a normal pace continues without a pause.
+  The **Load more** button remains as a fallback and for retrying errors.
+- Free courses can be joined directly from the catalog with the **Записаться на
+  курс** button. It creates a real enrollment in the user's Stepik account,
+  selects the course, and opens it in the tree. An already enrolled course
+  keeps the **Выбрать курс** action.
+
+### Changed
+
+- Catalog pagination appends only the new cards instead of rebuilding the whole
+  grid. This keeps the scroll position stable and avoids reloading covers.
+- Paid courses that are not in the user's profile cannot be selected in the
+  catalog: the card opens stepik.org so the course can be purchased or joined
+  there. The extension host repeats the check, so a crafted webview message
+  cannot bypass it.
+
 ## [0.4.4] - 2026-11-04
 
 ### Added
@@ -16,26 +93,11 @@
 - Course cards with covers, ratings from Stepik review summaries, learner
   counts, workload, language, price, and certificate badges. A course that is
   not in your profile links to stepik.org so you can enroll on the website.
-- Infinite scrolling in the course catalog. When the last cards approach the
-  viewport, the next 20 courses are appended automatically.
-- The page after the visible one is prefetched in the background together with
-  its cover images, so scrolling at a normal pace continues without a pause.
-  The **Load more** button remains as a fallback and for retrying errors.
-- Free courses can be joined directly from the catalog with the **Записаться на
-  курс** button. It creates a real enrollment in the user's Stepik account,
-  selects the course, and opens it in the tree. An already enrolled course
-  keeps the **Выбрать курс** action.
 
 ### Changed
 
 - Course selection and catalog selection now share the same update path, so
   the course tree refreshes immediately after a course is chosen.
-- Catalog pagination appends only the new cards instead of rebuilding the whole
-  grid. This keeps the scroll position stable and avoids reloading covers.
-- Paid courses that are not in the user's profile cannot be selected in the
-  catalog: the card opens stepik.org so the course can be purchased or joined
-  there. The extension host repeats the check, so a crafted webview message
-  cannot bypass it.
 
 ## [0.4.3] - 2026-11-04
 

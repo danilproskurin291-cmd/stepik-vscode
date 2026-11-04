@@ -4,6 +4,7 @@ import { StepikApi } from './api/stepikApi';
 import { StepikTreeProvider } from './providers/treeProvider';
 import { combineSubmissionFeedback } from './submissionFeedback';
 import { getComparableFilePath, getStepMappingPaths } from './stepikPaths';
+import { t } from './i18n';
 
 interface StepMapping {
     [filePath: string]: {
@@ -23,7 +24,7 @@ export class StepikSubmit {
     async submitCurrentFile(): Promise<void> {
         const editor = vscode.window.activeTextEditor;
         if (!editor) {
-            vscode.window.showErrorMessage('No active file to submit');
+            vscode.window.showErrorMessage(t('submit.noActiveFile'));
             return;
         }
 
@@ -31,9 +32,7 @@ export class StepikSubmit {
         const mapping = this.getStepMapping(filePath);
 
         if (!mapping) {
-            vscode.window.showErrorMessage(
-                'This file is not associated with a Stepik step. Open a step from the tree first.'
-            );
+            vscode.window.showErrorMessage(t('submit.notMapped'));
             return;
         }
 
@@ -47,12 +46,12 @@ export class StepikSubmit {
             access = await this.treeProvider.canSubmit(sectionId);
         } catch (error) {
             const detail = error instanceof Error ? error.message : String(error);
-            vscode.window.showErrorMessage(`Не удалось проверить доступ к секции: ${detail}`);
+            vscode.window.showErrorMessage(t('task.sectionAccessError', { detail }));
             return;
         }
         if (!access.ok) {
             vscode.window.showWarningMessage(
-                access.reason || 'Отправка решений для этой секции сейчас недоступна.'
+                access.reason || t('tree.submitUnavailable')
             );
             return;
         }
@@ -60,21 +59,21 @@ export class StepikSubmit {
         await vscode.window.withProgress(
             {
                 location: vscode.ProgressLocation.Notification,
-                title: 'Submitting solution...',
+                title: t('submit.progressTitle'),
                 cancellable: false
             },
             async (progress: vscode.Progress<{ message?: string }>) => {
                 try {
                     // Reuse the latest attempt, exactly like the web client.
-                    progress.report({ message: 'Preparing attempt...' });
+                    progress.report({ message: t('submit.preparing') });
                     const attempt = await this.api.getOrCreateAttempt(stepId);
 
                     // Submit solution
-                    progress.report({ message: 'Sending code...' });
+                    progress.report({ message: t('submit.sending') });
                     const submission = await this.api.submitSolution(attempt.id, language, code);
 
                     // Poll for result
-                    progress.report({ message: 'Waiting for result...' });
+                    progress.report({ message: t('submit.waiting') });
                     const result = await this.pollSubmissionResult(submission.id);
 
                     // Show result
@@ -86,7 +85,8 @@ export class StepikSubmit {
                         this.treeProvider.forceRefresh();
                     }
                 } catch (error) {
-                    vscode.window.showErrorMessage(`Submission failed: ${error}`);
+                    const detail = error instanceof Error ? error.message : String(error);
+                    vscode.window.showErrorMessage(t('submit.failed', { detail }));
                 }
             }
         );
@@ -195,16 +195,17 @@ export class StepikSubmit {
             this.treeProvider.refresh();
             
             vscode.window.showInformationMessage(
-                `✅ Correct! Score: ${result.score}`,
+                t('task.correctScore', { score: result.score }),
                 'OK'
             );
         } else {
             // Show brief message in notification
+            const showDetails = t('submit.showDetails');
             vscode.window.showErrorMessage(
-                `❌ Wrong solution`,
-                'Show Details'
+                t('task.wrongAnswer'),
+                showDetails
             ).then(selection => {
-                if (selection === 'Show Details') {
+                if (selection === showDetails) {
                     this.outputChannel.show();
                 }
             });

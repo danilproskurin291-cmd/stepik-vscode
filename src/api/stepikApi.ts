@@ -1,4 +1,5 @@
 import { StepikAuth } from '../auth';
+import { t } from '../i18n';
 
 const BASE_URL = 'https://stepik.org/api';
 const REQUEST_TIMEOUT_MS = 30_000;
@@ -23,7 +24,7 @@ async function fetchWithTimeout(
         return await fetch(url, { ...init, signal: controller.signal });
     } catch (error) {
         if (controller.signal.aborted) {
-            throw new Error(`Stepik не ответил за ${Math.round(timeoutMs / 1000)} с. Попробуйте ещё раз.`);
+            throw new Error(t('api.timeout', { seconds: Math.round(timeoutMs / 1000) }));
         }
         throw error;
     } finally {
@@ -119,13 +120,180 @@ export interface UserActivitySummary {
     pins: number[];
 }
 
+/** Per-day activity used by the profile heatmap (up to 365 days). */
+export interface UserActivity {
+    id: number;
+    pins: number[];
+}
+
+export interface SocialProfile {
+    id?: number;
+    type?: string;
+    url?: string;
+    name?: string;
+    [key: string]: unknown;
+}
+
+/** Public user record with the counters shown in the profile sidebar. */
+export interface StepikUser {
+    id: number;
+    profile?: number;
+    is_private?: boolean;
+    is_active?: boolean;
+    is_guest?: boolean;
+    is_organization?: boolean;
+    is_author?: boolean;
+    short_bio?: string;
+    details?: string;
+    first_name?: string;
+    last_name?: string;
+    full_name?: string;
+    alias?: string | null;
+    avatar?: string | null;
+    cover?: string | null;
+    city?: string | null;
+    knowledge?: number;
+    knowledge_rank?: number | null;
+    reputation?: number;
+    reputation_rank?: number | null;
+    join_date?: string;
+    social_profiles?: SocialProfile[];
+    solved_steps_count?: number;
+    created_courses_count?: number;
+    created_lessons_count?: number;
+    issued_certificates_count?: number;
+    followers_count?: number;
+}
+
+/** Private profile settings returned by /profiles/{id}. */
+export interface StepikProfile {
+    id: number;
+    first_name?: string;
+    last_name?: string;
+    full_name?: string;
+    is_private?: boolean;
+    avatar?: string | null;
+    language?: string;
+    city?: string | null;
+    short_bio?: string;
+    details?: string;
+    notification_status?: number;
+    is_staff?: boolean;
+    is_creator?: boolean;
+    is_web_push_enabled?: boolean;
+    is_vote_notifications_enabled?: boolean;
+    last_login?: string;
+    [key: string]: unknown;
+}
+
 export interface Certificate {
     id: number;
     course?: number;
     user?: number;
     type?: string;
     issue_date?: string;
+    update_date?: string;
+    grade?: number;
+    url?: string;
+    preview_url?: string;
+    course_title?: string;
+    course_title_en?: string;
+    course_language?: string;
+    course_is_public?: boolean;
+    is_public?: boolean;
+    saved_fullname?: string;
+    user_rank?: number;
+    user_rank_max?: number;
+    leaderboard_size?: number;
     [key: string]: unknown;
+}
+
+/** Unread counters for the notification bell and the filter tabs. */
+export interface NotificationStatus {
+    id: number;
+    learn: number;
+    review: number;
+    comments: number;
+    teach: number;
+    default: number;
+    total: number;
+}
+
+export interface NotificationTargetCourse {
+    course_id?: number;
+    course_title?: string;
+    course_cover?: string | null;
+    course_url?: string;
+    section_position?: number | string;
+    unit_position?: number | string;
+    [key: string]: unknown;
+}
+
+export interface NotificationTarget {
+    step_id?: number;
+    step_url?: string;
+    step_position?: number | string;
+    lesson_id?: number;
+    lesson_url?: string;
+    lesson_title?: string;
+    courses?: NotificationTargetCourse[];
+    [key: string]: unknown;
+}
+
+export interface NotificationContextData {
+    actor_name?: string;
+    actor_url?: string;
+    comment_preview_text?: string;
+    discussion_preview_text?: string;
+    discussion_url?: string;
+    submission_id?: number;
+    submission_status?: string;
+    submission_time?: string;
+    comment_is_solutions_thread?: boolean;
+    vote_target_type?: 'comment' | 'lesson' | string;
+    [key: string]: unknown;
+}
+
+export interface NotificationContext {
+    action_url?: string;
+    target?: NotificationTarget;
+    data?: NotificationContextData;
+    [key: string]: unknown;
+}
+
+/**
+ * One Stepik notification. `courses` is a relationship id list in the JSON
+ * API; some responses inline the related course objects instead.
+ */
+export interface StepikNotification {
+    id: number;
+    is_unread: boolean;
+    is_muted?: boolean;
+    is_favorite: boolean;
+    time: string;
+    type: string;
+    action: string;
+    level?: string;
+    priority?: string;
+    html_text?: string;
+    context?: NotificationContext;
+    courses?: Array<number | { id?: number; title?: string; cover?: string | null }>;
+}
+
+export interface NotificationQuery {
+    page?: number;
+    pageSize?: number;
+    isUnread?: boolean;
+    isFavorite?: boolean;
+    type?: string;
+    course?: number;
+    order?: string;
+}
+
+export interface NotificationPage {
+    notifications: StepikNotification[];
+    page: number;
+    hasNext: boolean;
 }
 
 export interface Section {
@@ -588,8 +756,17 @@ export class StepikApi {
                 // Ignore a secondary body-read error.
             }
             const message = response.status === 401
-                ? 'Сессия Stepik истекла. Выполните вход заново.'
-                : `API Error: ${response.status} ${response.statusText}${detail ? ` — ${detail}` : ''}`;
+                ? t('api.sessionExpired')
+                : detail
+                    ? t('api.errorDetail', {
+                          status: response.status,
+                          statusText: response.statusText,
+                          detail
+                      })
+                    : t('api.error', {
+                          status: response.status,
+                          statusText: response.statusText
+                      });
             throw new StepikApiError(message, response.status);
         }
 
@@ -617,7 +794,7 @@ export class StepikApi {
         }>('/stepics/1', 5 * 60_000);
         const user = data.users?.[0];
         if (!user) {
-            throw new Error('Не удалось определить пользователя Stepik.');
+            throw new Error(t('api.userNotFound'));
         }
 
         const composedName = [user.first_name, user.last_name]
@@ -676,7 +853,7 @@ export class StepikApi {
      */
     async enrollCourse(courseId: number): Promise<void> {
         if (!Number.isInteger(courseId) || courseId <= 0) {
-            throw new Error('Некорректный идентификатор курса.');
+            throw new Error(t('api.invalidCourseId'));
         }
 
         await this.request('/enrollments', {
@@ -941,7 +1118,7 @@ export class StepikApi {
 
         const session = extractExamSession(data);
         if (!session) {
-            throw new Error('Stepik не вернул созданную экзаменационную сессию.');
+            throw new Error(t('api.examSessionMissing'));
         }
         return session;
     }
@@ -1479,6 +1656,18 @@ export class StepikApi {
         }
     }
 
+    /** Full per-day activity (365 days) used by the profile heatmap. */
+    async getUserActivity(userId: number): Promise<UserActivity | null> {
+        try {
+            const data = await this.cachedRequest<{
+                'user-activities'?: UserActivity[];
+            }>(`/user-activities/${userId}`, 60_000);
+            return data['user-activities']?.[0] || null;
+        } catch {
+            return null;
+        }
+    }
+
     async getCertificates(userId: number): Promise<Certificate[]> {
         try {
             const data = await this.cachedRequest<{ certificates?: Certificate[] }>(
@@ -1489,5 +1678,127 @@ export class StepikApi {
         } catch {
             return [];
         }
+    }
+
+    /** Public user record with the counters shown on the profile page. */
+    async getUser(userId: number): Promise<StepikUser | null> {
+        try {
+            const data = await this.cachedRequest<{ users?: StepikUser[] }>(
+                `/users/${userId}`,
+                60_000
+            );
+            return data.users?.[0] || null;
+        } catch (error) {
+            console.warn('[Stepik] Failed to load user:', error);
+            return null;
+        }
+    }
+
+    /** Private profile record belonging to the current account. */
+    async getProfile(userId: number): Promise<StepikProfile | null> {
+        try {
+            const data = await this.cachedRequest<{ profiles?: StepikProfile[] }>(
+                `/profiles/${userId}`,
+                60_000
+            );
+            return data.profiles?.[0] || null;
+        } catch (error) {
+            console.warn('[Stepik] Failed to load profile:', error);
+            return null;
+        }
+    }
+
+    /**
+     * Unread notification counters. Unlike the list itself this is fetched
+     * fresh every time, because the status bar depends on it.
+     */
+    async getNotificationStatus(userId?: number): Promise<NotificationStatus | null> {
+        const id = userId ?? (await this.getCurrentUser()).id;
+        const data = await this.request<{
+            'notification-statuses'?: NotificationStatus[];
+        }>(`/notification-statuses/${id}`);
+        return data['notification-statuses']?.[0] || null;
+    }
+
+    async getNotifications(query: NotificationQuery = {}): Promise<NotificationPage> {
+        const params = new URLSearchParams();
+        const page = Math.max(1, Math.floor(Number(query.page) || 1));
+        params.set('page', String(page));
+        if (query.pageSize) {
+            params.set('page_size', String(Math.max(1, Math.floor(query.pageSize))));
+        }
+        if (query.isUnread !== undefined) {
+            params.set('is_unread', String(query.isUnread));
+        }
+        if (query.isFavorite !== undefined) {
+            params.set('is_favorite', String(query.isFavorite));
+        }
+        if (query.type && query.type !== 'all') {
+            params.set('type', query.type);
+        }
+        if (query.course) {
+            params.set('course', String(query.course));
+        }
+        params.set('order', query.order || '-time,-id');
+
+        const data = await this.request<{
+            notifications?: StepikNotification[];
+            meta?: { page?: number; has_next?: boolean };
+        }>(`/notifications?${params.toString()}`);
+
+        return {
+            notifications: data.notifications || [],
+            page: data.meta?.page ?? page,
+            hasNext: Boolean(data.meta?.has_next)
+        };
+    }
+
+    /**
+     * Update one notification. Stepik only accepts PUT here; the body needs
+     * the id even though it is already present in the path.
+     */
+    async updateNotification(
+        notificationId: number,
+        changes: { is_unread?: boolean; is_favorite?: boolean; is_muted?: boolean }
+    ): Promise<StepikNotification | null> {
+        const data = await this.request<{ notifications?: StepikNotification[] }>(
+            `/notifications/${notificationId}`,
+            {
+                method: 'PUT',
+                body: JSON.stringify({
+                    notification: {
+                        id: notificationId,
+                        ...changes
+                    }
+                })
+            }
+        );
+        return data.notifications?.[0] || null;
+    }
+
+    /**
+     * Mark every notification matching the current filters as read. The
+     * endpoint accepts either `type` or `course` at the top level, not inside
+     * a `notification` envelope.
+     */
+    async markAllNotificationsRead(filters: {
+        type?: string;
+        course?: number;
+    } = {}): Promise<string | undefined> {
+        const body: { type?: string; course?: number } = {};
+        if (filters.type && filters.type !== 'all') {
+            body.type = filters.type;
+        }
+        if (filters.course) {
+            body.course = filters.course;
+        }
+        const data = await this.request<{ status_text?: string }>(
+            '/notifications/mark-as-read',
+            {
+                method: 'POST',
+                body: JSON.stringify(body)
+            }
+        );
+        return data.status_text;
     }
 }
