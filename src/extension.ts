@@ -4,6 +4,7 @@ import { StepikAuth } from './auth';
 import { StepikTreeProvider } from './providers/treeProvider';
 import { StepikApi } from './api/stepikApi';
 import { StepikWebview } from './views/webview';
+import { CourseCatalogView } from './views/courseCatalog';
 import { StepikSubmit } from './submit';
 import { StepContext } from './stepContext';
 import { getActiveSolutionRoot } from './stepikPaths';
@@ -40,6 +41,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     treeProvider = new StepikTreeProvider(api, context);
     const accountWorkspace = new AccountWorkspace(api, outputChannel);
     const webview = new StepikWebview(context, api, treeProvider, outputChannel);
+    const catalog = new CourseCatalogView(context, api, treeProvider, outputChannel);
     const submit = new StepikSubmit(api, treeProvider, outputChannel);
 
     // Register tree view
@@ -71,6 +73,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     // Register commands
     context.subscriptions.push(
         webview,
+        catalog,
 
         vscode.commands.registerCommand('stepik.login', async () => {
             const loggedIn = await auth.login();
@@ -111,6 +114,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             await auth.logout();
             api.clearCache();
             webview.resetForLogout();
+            catalog.resetForLogout();
             accountWorkspace.clearActiveAccount();
             treeProvider.refresh();
         }),
@@ -141,8 +145,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         }),
 
         vscode.commands.registerCommand('stepik.selectCourse', async () => {
-            await treeProvider.selectCourse();
+            const action = await treeProvider.selectCourse();
+            if (action === 'browse') {
+                catalog.show();
+            }
             updateTreeTitle();
+        }),
+
+        vscode.commands.registerCommand('stepik.browseCourses', () => {
+            catalog.show();
         }),
 
         vscode.commands.registerCommand('stepik.openStep', async (stepContext: StepContext) => {

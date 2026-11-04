@@ -77,25 +77,62 @@ export class StepikTreeProvider implements vscode.TreeDataProvider<TreeItemData>
         }
     }
 
-    async selectCourse(): Promise<void> {
-        const courses = await this.api.getUserCourses();
+    async selectCourse(): Promise<'browse' | undefined> {
+        let courses: Course[] = [];
+        try {
+            courses = await this.api.getUserCourses();
+        } catch {
+            // The catalog can still be useful even when the personal list is
+            // unavailable, so offer it instead of failing the whole command.
+        }
 
-        const items = courses.map(course => ({
+        type CoursePickItem = vscode.QuickPickItem & {
+            course?: Course;
+            browse?: boolean;
+        };
+
+        const items: CoursePickItem[] = courses.map(course => ({
             label: course.title,
             description: `${course.sections.length} секций`,
+            iconPath: new vscode.ThemeIcon('book'),
             course
         }));
 
+        if (items.length > 0) {
+            items.push({
+                label: 'Другие курсы',
+                kind: vscode.QuickPickItemKind.Separator
+            });
+        }
+
+        items.push({
+            label: 'Выбрать другой курс…',
+            description: 'Рекомендации, каталог и поиск',
+            iconPath: new vscode.ThemeIcon('search'),
+            browse: true
+        });
+
         const selected = await vscode.window.showQuickPick(items, {
-            placeHolder: 'Выберите курс',
+            placeHolder: 'Выберите курс или откройте каталог',
             title: 'Stepik: выбор курса'
         });
 
-        if (selected) {
-            this.selectedCourse = selected.course;
-            await this.context.globalState.update('selectedCourseId', selected.course.id);
-            this.forceRefresh();
+        if (!selected) {
+            return undefined;
         }
+        if (selected.browse) {
+            return 'browse';
+        }
+        if (selected.course) {
+            await this.setSelectedCourse(selected.course);
+        }
+        return undefined;
+    }
+
+    async setSelectedCourse(course: Course): Promise<void> {
+        this.selectedCourse = course;
+        await this.context.globalState.update('selectedCourseId', course.id);
+        this.forceRefresh();
     }
 
     getSelectedCourse(): Course | undefined {

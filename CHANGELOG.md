@@ -1,5 +1,42 @@
 # Changelog
 
+## [0.4.4] - 2026-11-04
+
+### Added
+
+- Course catalog opened from **Stepik: Select Course → Выбрать другой курс…**
+  and from the new **Stepik: Browse Courses** command. It has tabs for
+  recommended courses, Stepik's curated popular courses, and your enrolled
+  courses.
+- Catalog search uses the same relevance ranking as the Stepik website, so
+  results are useful courses instead of the newest empty publications.
+- Catalog keeps Stepik's own course order: relevance for search and
+  recommendations, popularity for the Popular tab. There is also a **free-only**
+  filter and **Show more** pagination.
+- Course cards with covers, ratings from Stepik review summaries, learner
+  counts, workload, language, price, and certificate badges. A course that is
+  not in your profile links to stepik.org so you can enroll on the website.
+- Infinite scrolling in the course catalog. When the last cards approach the
+  viewport, the next 20 courses are appended automatically.
+- The page after the visible one is prefetched in the background together with
+  its cover images, so scrolling at a normal pace continues without a pause.
+  The **Load more** button remains as a fallback and for retrying errors.
+- Free courses can be joined directly from the catalog with the **Записаться на
+  курс** button. It creates a real enrollment in the user's Stepik account,
+  selects the course, and opens it in the tree. An already enrolled course
+  keeps the **Выбрать курс** action.
+
+### Changed
+
+- Course selection and catalog selection now share the same update path, so
+  the course tree refreshes immediately after a course is chosen.
+- Catalog pagination appends only the new cards instead of rebuilding the whole
+  grid. This keeps the scroll position stable and avoids reloading covers.
+- Paid courses that are not in the user's profile cannot be selected in the
+  catalog: the card opens stepik.org so the course can be purchased or joined
+  there. The extension host repeats the check, so a crafted webview message
+  cannot bypass it.
+
 ## [0.4.3] - 2026-11-04
 
 ### Fixed

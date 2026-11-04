@@ -66,6 +66,30 @@ export interface Course {
     hard_deadline?: string | null;
     grading_policy?: string;
     is_active?: boolean;
+    summary?: string;
+    cover?: string | null;
+    learners_count?: number;
+    review_summary?: number | null;
+    is_paid?: boolean;
+    price?: string | null;
+    display_price?: string | null;
+    workload?: string | null;
+    language?: string;
+    is_public?: boolean;
+    is_popular?: boolean;
+    with_certificate?: boolean;
+    create_date?: string;
+    update_date?: string;
+    canonical_url?: string;
+}
+
+/** Rating details from /course-review-summaries. */
+export interface CourseReviewSummary {
+    id: number;
+    course: number;
+    average: number;
+    count: number;
+    distribution?: number[];
 }
 
 export interface Progress {
@@ -642,6 +666,29 @@ export class StepikApi {
         return courses;
     }
 
+    /**
+     * Enroll the current user in a course.
+     *
+     * Stepik's own web app and mobile clients POST the same envelope to
+     * `/enrollments`. OAuth bearers are accepted here, so no website CSRF
+     * token is needed. Paid courses must be bought on stepik.org first; the
+     * caller is responsible for enforcing that rule.
+     */
+    async enrollCourse(courseId: number): Promise<void> {
+        if (!Number.isInteger(courseId) || courseId <= 0) {
+            throw new Error('Некорректный идентификатор курса.');
+        }
+
+        await this.request('/enrollments', {
+            method: 'POST',
+            body: JSON.stringify({
+                enrollment: {
+                    course: courseId
+                }
+            })
+        });
+    }
+
     async getCourse(courseId: number): Promise<Course | undefined> {
         try {
             const data = await this.request<{ courses: Course[] }>(`/courses/${courseId}`);
@@ -649,6 +696,101 @@ export class StepikApi {
         } catch {
             return undefined;
         }
+    }
+
+    /**
+     * Course ids in the same relevance order as Stepik's own search page.
+     *
+     * The public `/courses?search=...` endpoint is sorted by creation date,
+     * which makes a search look like a list of random new courses. Stepik's
+     * website uses `/search-results` instead, so the catalog does the same:
+     * no query returns the top courses, a query returns relevant matches.
+     */
+    async searchCatalogCourseIds(
+        search: string,
+        page: number,
+        freeOnly: boolean = false
+    ): Promise<{ courseIds: number[]; hasNext: boolean }> {
+        const params = new URLSearchParams();
+        params.set('type', 'course');
+        params.set('page', String(page));
+        if (freeOnly) {
+            params.set('is_paid', 'false');
+        }
+        const query = search.trim();
+        if (query) {
+            params.set('query', query);
+        }
+        const data = await this.request<{
+            'search-results': Array<{ course: number }>;
+            meta?: { has_next?: boolean };
+        }>(`/search-results?${params.toString()}`);
+        return {
+            courseIds: (data['search-results'] || [])
+                .map(result => result.course)
+                .filter(id => Number.isInteger(id) && id > 0),
+            hasNext: Boolean(data.meta?.has_next)
+        };
+    }
+
+    /** Ordered course ids from a curated Stepik list such as "Популярные курсы". */
+    async getCourseListCourseIds(listId: number): Promise<number[]> {
+        const data = await this.request<{
+            'course-lists': Array<{ courses?: number[] }>;
+        }>(`/course-lists/${listId}`);
+        const list = (data['course-lists'] || [])[0];
+        return (list?.courses || []).filter(id => Number.isInteger(id) && id > 0);
+    }
+
+    /** Fetch courses by id while preserving the order of the given ids. */
+    async getCoursesByIds(courseIds: number[]): Promise<Course[]> {
+        if (courseIds.length === 0) {
+            return [];
+        }
+
+        const byId = new Map<number, Course>();
+        for (const part of chunkItems(courseIds)) {
+            const data = await this.request<{ courses: Course[] }>(
+                `/courses?${part.map(id => `ids[]=${id}`).join('&')}`
+            );
+            for (const course of data.courses || []) {
+                byId.set(course.id, course);
+            }
+        }
+
+        return courseIds
+            .map(id => byId.get(id))
+            .filter((course): course is Course => Boolean(course));
+    }
+
+    async getCourseReviewSummaries(
+        courseIds: number[]
+    ): Promise<Map<number, CourseReviewSummary>> {
+        const result = new Map<number, CourseReviewSummary>();
+        if (courseIds.length === 0) {
+            return result;
+        }
+
+        for (const part of chunkItems(courseIds)) {
+            const query = part.map(id => `ids[]=${id}`).join('&');
+            try {
+                const data = await this.request<{
+                    'course-review-summaries': CourseReviewSummary[];
+                }>(`/course-review-summaries?${query}`);
+                for (const summary of data['course-review-summaries'] || []) {
+                    // `ids[]` contains review-summary ids from
+                    // `course.review_summary`; keep both keys so callers can
+                    // look the summary up by either id or course.
+                    result.set(summary.id, summary);
+                    result.set(summary.course, summary);
+                }
+            } catch (error) {
+                // Ratings are decorative: a failed summary request must not
+                // hide the catalog itself.
+                console.warn('[Stepik] Failed to load course review summaries:', error);
+            }
+        }
+        return result;
     }
 
     async getSections(sectionIds: number[]): Promise<Section[]> {

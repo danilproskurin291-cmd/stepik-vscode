@@ -3,7 +3,7 @@
 	"displayName": "Stepik Fork",
 	"description": "Fork of Stepik for VS Code: solve Stepik problems, read discussions and post comments",
 	"author": "Danil Proskurin (꧁༒☬𝔉𝔜𝔡𝔡𝔡𝔡𝔰𝔰☬༒꧂)",
-	"version": "0.4.3",
+	"version": "0.4.4",
 	"publisher": "FYddddss",
 	"license": "GPL-3.0-only",
 	"engines": {
@@ -25,6 +25,7 @@
 		"onView:stepikCourses",
 		"onCommand:stepik.login",
 		"onCommand:stepik.selectCourse",
+		"onCommand:stepik.browseCourses",
 		"onCommand:stepik.startExam"
 	],
 	"main": "./dist/extension.js",
@@ -68,6 +69,11 @@
 				"command": "stepik.selectCourse",
 				"title": "Stepik: Select Course",
 				"icon": "$(book)"
+			},
+			{
+				"command": "stepik.browseCourses",
+				"title": "Stepik: Browse Courses",
+				"icon": "$(search)"
 			}
 		],
 		"viewsContainers": {

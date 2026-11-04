@@ -77,12 +77,12 @@ and your OAuth credentials.
 1. Open the
    [Releases](https://github.com/danilproskurin291-cmd/stepik-vscode/releases)
    page.
-2. Download the latest `stepik-vscode-fork-0.4.3.vsix`.
+2. Download the latest `stepik-vscode-fork-0.4.4.vsix`.
 3. Install it in one of these ways:
    - from a terminal:
 
      ```bash
-     code --install-extension stepik-vscode-fork-0.4.3.vsix
+     code --install-extension stepik-vscode-fork-0.4.4.vsix
      ```
 
    - or in VS Code: **Extensions → … → Install from VSIX…**, then select the
@@ -99,11 +99,11 @@ Node.js 18+ is required.
 npm ci
 npm run build
 npx @vscode/vsce package
-code --install-extension stepik-vscode-fork-0.4.3.vsix
+code --install-extension stepik-vscode-fork-0.4.4.vsix
 ```
 
 Build output: `dist/extension.js` and `dist/audioWorker.js`.
-Installable package: `stepik-vscode-fork-0.4.3.vsix`.
+Installable package: `stepik-vscode-fork-0.4.4.vsix`.
 
 ## First launch
 
@@ -157,12 +157,30 @@ the new account gets a separate folder.
 - **Stepik: Archive Account Solutions** — archive the current account without
   signing out.
 - **Stepik: Select Course** — choose one of your courses.
+- **Stepik: Browse Courses** — course catalog with recommendations and search.
 - **Stepik: Refresh** — reload the course tree and progress.
 
 The selected course is saved and restored on the next launch.
 
-Only courses you are enrolled in on Stepik are listed. If a course is missing,
-check your enrolment on the website and press **Stepik: Refresh**.
+The course picker lists the courses you are enrolled in and a
+**Choose another course…** item. It opens the catalog:
+
+- **Recommended** — Stepik's relevance-ranked selection;
+- **Popular** — Stepik's curated list of popular courses;
+- **My courses** — courses from your profile.
+
+The catalog supports search by title and description, a **free-only** filter,
+and links to stepik.org. Courses keep Stepik's own order: relevance for search
+and recommendations, popularity for the Popular tab. Scrolling to the bottom
+loads the next 20 courses automatically, while one more page is prefetched in
+the background so normal-speed scrolling stays smooth.
+
+A free course you are not enrolled in yet can be joined right from the catalog
+with the **Enroll in course** button: the extension creates the enrollment in
+your Stepik account, selects the course, and opens it in the tree. Paid courses
+that are not in your profile are never enrolled locally — the **Buy on
+Stepik ↗** button opens the course page on stepik.org to complete the purchase
+and enrollment.
 
 ## Interface
 
@@ -458,6 +476,7 @@ Command palette: `Ctrl+Shift+P` (Windows/Linux) or `Cmd+Shift+P` (macOS).
 | **Stepik: Archive Account Solutions** | Create a ZIP archive of the current account |
 | **Stepik: Refresh** | Reload the tree and progress |
 | **Stepik: Select Course** | Choose a course |
+| **Stepik: Browse Courses** | Catalog, recommendations, and course search |
 | **Stepik: Submit Solution** | Submit the current solution file |
 
 **Stepik: Open Step** and **Stepik: Start Exam** are invoked from the UI and
@@ -627,7 +646,7 @@ npx tsc --noEmit
 ```
 
 Build output: `dist/extension.js` and `dist/audioWorker.js`.
-Installable package: `stepik-vscode-fork-0.4.3.vsix`.
+Installable package: `stepik-vscode-fork-0.4.4.vsix`.
 
 ## Limitations
 
