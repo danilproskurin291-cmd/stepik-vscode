@@ -159,6 +159,16 @@ export class StepikWebview implements vscode.Disposable {
     private currentAttempt: Attempt | undefined;
     private currentSubmission: Submission | undefined;
     private quizEditUnlocked = false;
+    /** Cancels stale asynchronous step loads after a fast navigation. */
+    private stepLoadToken = 0;
+    /**
+     * Attempts created by an explicit "Start over". An empty attempt from
+     * this set must stay empty; older answers are not restored into it.
+     * Persisted so an extension reload does not undo an explicit restart.
+     */
+    private readonly restartedAttempts = new Set<number>();
+    private static readonly RESTARTED_ATTEMPTS_KEY = 'stepik.restartedAttempts';
+    private static readonly RESTARTED_ATTEMPTS_LIMIT = 500;
     private currentDatasetFile: string | undefined;
     private currentDatasetFileError: string | undefined;
     private readonly markedVideoSteps = new Set<number>();
@@ -246,6 +256,38 @@ export class StepikWebview implements vscode.Disposable {
                 (node as HTMLElement).classList.contains('math-tex'),
             replacement: (_content, node) => (node.textContent || '').trim()
         });
+
+        // "Start over" must survive an extension reload. Otherwise the empty
+        // attempt would be treated as a leftover and the old solved answer
+        // would be restored into it.
+        const storedRestarts = this.context.globalState?.get<number[]>(
+            StepikWebview.RESTARTED_ATTEMPTS_KEY
+        );
+        if (Array.isArray(storedRestarts)) {
+            for (const rawId of storedRestarts) {
+                const id = Number(rawId);
+                if (Number.isFinite(id)) {
+                    this.restartedAttempts.add(id);
+                }
+            }
+        }
+    }
+
+    private rememberRestartedAttempt(attemptId: number): void {
+        this.restartedAttempts.add(attemptId);
+        const ids = Array.from(this.restartedAttempts);
+        if (ids.length > StepikWebview.RESTARTED_ATTEMPTS_LIMIT) {
+            for (const oldId of ids.slice(
+                0,
+                ids.length - StepikWebview.RESTARTED_ATTEMPTS_LIMIT
+            )) {
+                this.restartedAttempts.delete(oldId);
+            }
+        }
+        void this.context.globalState?.update(
+            StepikWebview.RESTARTED_ATTEMPTS_KEY,
+            Array.from(this.restartedAttempts)
+        );
     }
 
     async showStep(
@@ -253,6 +295,10 @@ export class StepikWebview implements vscode.Disposable {
         knownExamSession?: ExamSession
     ): Promise<void> {
         const { step, section } = stepContext;
+        // Every navigation gets a token. Asynchronous work from an older step
+        // must never overwrite the attempt, submission, or panel of a newer
+        // one when the user clicks quickly.
+        const loadToken = ++this.stepLoadToken;
 
         // An exam session already active in this section is also valid for its
         // neighbouring steps. Reuse it as a hint when Stepik's section payload
@@ -357,6 +403,10 @@ export class StepikWebview implements vscode.Disposable {
             }
         }
 
+        if (loadToken !== this.stepLoadToken) {
+            return;
+        }
+
         this.currentStep = stepContext;
         this.currentAccess = access;
         this.currentAttempt = undefined;
@@ -378,6 +428,10 @@ export class StepikWebview implements vscode.Disposable {
             );
         }
 
+        if (loadToken !== this.stepLoadToken) {
+            return;
+        }
+
         // Load comments and detect the solutions forum before rendering. The
         // user's submissions are loaded lazily when the solutions tab is
         // opened, so an ordinary step does not pay for an extra request.
@@ -395,6 +449,10 @@ export class StepikWebview implements vscode.Disposable {
                 );
             })
         ]);
+
+        if (loadToken !== this.stepLoadToken) {
+            return;
+        }
 
         if (!this.panel) {
             this.panel = vscode.window.createWebviewPanel(
@@ -439,8 +497,14 @@ export class StepikWebview implements vscode.Disposable {
         // attempt. Code tasks create their attempt when a file is submitted,
         // but every other quiz type needs it before the form can be rendered.
         if (ATTEMPT_STEP_TYPES.has(step.block.name)) {
-            await this.createAttemptForStep(step);
-            await this.loadAttemptSubmission(step);
+            await this.createAttemptForStep(step, false, loadToken);
+            if (loadToken !== this.stepLoadToken) {
+                return;
+            }
+            await this.loadAttemptSubmission(step, loadToken);
+            if (loadToken !== this.stepLoadToken) {
+                return;
+            }
         }
 
         this.panel.title = t('task.tabTitle', { position: step.position });
@@ -648,20 +712,35 @@ export class StepikWebview implements vscode.Disposable {
      * keeps old attempts after "start over", so filtering by attempt id is
      * important: otherwise a fresh attempt would reopen with the previous
      * (already solved) answer and stay locked.
+     *
+     * Older versions of the extension accidentally created a new attempt on
+     * every step open because `/attempts?user=me` was rejected by Stepik. To
+     * heal those accounts, an empty current attempt falls back to the attempt
+     * that actually owns the last answer. Explicit "Start over" attempts are
+     * excluded from that fallback.
      */
-    private async loadAttemptSubmission(step: Step): Promise<void> {
+    private async loadAttemptSubmission(
+        step: Step,
+        token?: number
+    ): Promise<void> {
+        if (!this.isStepLoadCurrent(token, step.id)) {
+            return;
+        }
         this.currentSubmission = undefined;
         this.quizEditUnlocked = false;
-        if (!this.currentAttempt) {
+        const initialAttempt = this.currentAttempt;
+        if (!initialAttempt) {
             return;
         }
 
         try {
             const submissions = await this.api.getUserSubmissions(step.id);
-            const attemptId = this.currentAttempt.id;
-            let candidates = submissions.filter(
-                submission => submission.attempt === attemptId
-            );
+            if (!this.isStepLoadCurrent(token, step.id)) {
+                return;
+            }
+
+            let attempt = initialAttempt;
+            let candidates = this.getAttemptSubmissions(submissions, attempt.id);
 
             // Very old API responses omit the attempt link. Only fall back to
             // the whole list when Stepik keeps a single attempt for the step;
@@ -669,11 +748,69 @@ export class StepikWebview implements vscode.Disposable {
             if (
                 candidates.length === 0 &&
                 submissions.length > 0 &&
-                submissions.every(submission => submission.attempt === undefined)
+                submissions.every(
+                    submission => this.getSubmissionAttemptId(submission) === undefined
+                )
             ) {
                 const attempts = await this.api.getAttempts(step.id).catch(() => []);
+                if (!this.isStepLoadCurrent(token, step.id)) {
+                    return;
+                }
                 if (attempts.length <= 1) {
                     candidates = submissions;
+                }
+            }
+
+            // An empty attempt can be a leftover from an older extension
+            // version. Restore the last submitted answer from the attempt that
+            // owns it instead of opening an answered task as blank. Prefer a
+            // solved submission: a solved task must never look unanswered.
+            if (
+                candidates.length === 0 &&
+                !this.restartedAttempts.has(attempt.id)
+            ) {
+                const solvedAnywhere = submissions
+                    .filter(
+                        submission =>
+                            this.isSubmissionSolved(submission) &&
+                            this.getSubmissionAttemptId(submission) !== undefined
+                    )
+                    .sort((left, right) => right.id - left.id)[0];
+                const latestAnywhere = submissions
+                    .filter(
+                        submission =>
+                            this.getSubmissionAttemptId(submission) !== undefined
+                    )
+                    .sort((left, right) => right.id - left.id)[0];
+                const recovery = solvedAnywhere || latestAnywhere;
+                const recoveryAttemptId = recovery
+                    ? this.getSubmissionAttemptId(recovery)
+                    : undefined;
+
+                if (
+                    recoveryAttemptId !== undefined &&
+                    recoveryAttemptId !== attempt.id
+                ) {
+                    let owner = (await this.api.getAttempts(step.id).catch(() => []))
+                        .find(candidate => candidate.id === recoveryAttemptId);
+                    if (!owner) {
+                        owner = await this.api.getAttemptById(recoveryAttemptId);
+                    }
+                    if (!this.isStepLoadCurrent(token, step.id)) {
+                        return;
+                    }
+                    if (owner) {
+                        attempt = owner;
+                        this.currentAttempt = owner;
+                        candidates = this.getAttemptSubmissions(
+                            submissions,
+                            owner.id
+                        );
+                        await this.loadDatasetFileForAttempt(step, owner, token);
+                        if (!this.isStepLoadCurrent(token, step.id)) {
+                            return;
+                        }
+                    }
                 }
             }
 
@@ -685,7 +822,11 @@ export class StepikWebview implements vscode.Disposable {
                 this.isSubmissionSolved(submission)
             );
             this.currentSubmission = solved || candidates[0];
+            this.quizEditUnlocked = false;
         } catch (error) {
+            if (!this.isStepLoadCurrent(token, step.id)) {
+                return;
+            }
             const detail = error instanceof Error ? error.message : String(error);
             this.outputChannel.appendLine(
                 `[Submission] Failed to load the answer for step ${step.id}: ${detail}`
@@ -693,41 +834,115 @@ export class StepikWebview implements vscode.Disposable {
         }
     }
 
-    private async createAttemptForStep(step: Step, forceNew: boolean = false): Promise<void> {
+    private getSubmissionAttemptId(submission: Submission): number | undefined {
+        const raw = submission.attempt;
+        if (raw === undefined || raw === null || raw === '') {
+            return undefined;
+        }
+        const id = Number(raw);
+        return Number.isFinite(id) ? id : undefined;
+    }
+
+    private getAttemptSubmissions(
+        submissions: Submission[],
+        attemptId: number
+    ): Submission[] {
+        return submissions.filter(
+            submission => this.getSubmissionAttemptId(submission) === attemptId
+        );
+    }
+
+    private isStepLoadCurrent(token: number | undefined, stepId: number): boolean {
+        if (token !== undefined && token !== this.stepLoadToken) {
+            return false;
+        }
+        return this.currentStep === undefined || this.currentStep.step.id === stepId;
+    }
+
+    private async createAttemptForStep(
+        step: Step,
+        forceNew: boolean = false,
+        token?: number
+    ): Promise<void> {
         try {
             // Reuse the latest attempt: Stepik keeps one attempt per step and
             // accepts several submissions in it. A brand-new attempt is only
             // created when the user explicitly asks for one.
-            this.currentAttempt = forceNew
+            const attempt = forceNew
                 ? await this.api.createAttempt(step.id)
                 : await this.api.getOrCreateAttempt(step.id);
+
+            // An explicit restart creates a fresh attempt even if the user
+            // navigates away before the request finishes. Remember it before
+            // the navigation check so it never inherits the old answer.
+            if (forceNew && attempt) {
+                this.rememberRestartedAttempt(attempt.id);
+            }
+
+            if (!this.isStepLoadCurrent(token, step.id)) {
+                return;
+            }
+            if (!attempt) {
+                return;
+            }
+
+            this.currentAttempt = attempt;
             if (forceNew) {
                 this.currentSubmission = undefined;
                 this.quizEditUnlocked = false;
             }
-            this.currentDatasetFile = undefined;
-            this.currentDatasetFileError = undefined;
 
-            if (step.block.name === 'dataset' && this.currentAttempt) {
-                try {
-                    this.currentDatasetFile = await this.api.getAttemptFile(
-                        this.currentAttempt.id,
-                        this.currentAttempt.dataset_url
-                    );
-                } catch (error) {
-                    this.currentDatasetFileError =
-                        error instanceof Error ? error.message : String(error);
-                    this.outputChannel.appendLine(
-                        `[Dataset] Failed to load the input file for step ${step.id}: ${this.currentDatasetFileError}`
-                    );
-                }
-            }
+            await this.loadDatasetFileForAttempt(step, attempt, token);
         } catch (error) {
+            if (!this.isStepLoadCurrent(token, step.id)) {
+                return;
+            }
             const detail = error instanceof Error ? error.message : String(error);
             this.outputChannel.appendLine(
                 `[Attempt] Failed to create an attempt for step ${step.id}: ${detail}`
             );
             vscode.window.showErrorMessage(t('task.createAttemptFailed'));
+        }
+    }
+
+    private async loadDatasetFileForAttempt(
+        step: Step,
+        attempt: Attempt,
+        token?: number
+    ): Promise<void> {
+        if (!this.isStepLoadCurrent(token, step.id)) {
+            return;
+        }
+        this.currentDatasetFile = undefined;
+        this.currentDatasetFileError = undefined;
+        if (step.block.name !== 'dataset') {
+            return;
+        }
+
+        try {
+            const file = await this.api.getAttemptFile(
+                attempt.id,
+                attempt.dataset_url
+            );
+            if (
+                !this.isStepLoadCurrent(token, step.id) ||
+                this.currentAttempt?.id !== attempt.id
+            ) {
+                return;
+            }
+            this.currentDatasetFile = file;
+        } catch (error) {
+            if (
+                !this.isStepLoadCurrent(token, step.id) ||
+                this.currentAttempt?.id !== attempt.id
+            ) {
+                return;
+            }
+            this.currentDatasetFileError =
+                error instanceof Error ? error.message : String(error);
+            this.outputChannel.appendLine(
+                `[Dataset] Failed to load the input file for step ${step.id}: ${this.currentDatasetFileError}`
+            );
         }
     }
 
@@ -3320,9 +3535,15 @@ export class StepikWebview implements vscode.Disposable {
             case 'restart':
                 if (this.currentStep) {
                     // The user explicitly asked for a fresh attempt and
-                    // refreshed dataset/options.
-                    await this.createAttemptForStep(this.currentStep.step, true);
-                    this.renderCurrentStep();
+                    // refreshed dataset/options. Cancel any stale step load
+                    // that is still in flight so it cannot restore the old
+                    // answer over the new attempt.
+                    const step = this.currentStep.step;
+                    const token = ++this.stepLoadToken;
+                    await this.createAttemptForStep(step, true, token);
+                    if (token === this.stepLoadToken) {
+                        this.renderCurrentStep(step.id);
+                    }
                 }
                 break;
             case 'editAnswer':

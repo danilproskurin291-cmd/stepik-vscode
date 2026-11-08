@@ -8,7 +8,7 @@
 
 Courses, theory, quizzes, code, exams, video, and discussions — all in one VS Code window.
 
-[![Version](https://img.shields.io/badge/version-0.4.11-54ad54?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.4.12-54ad54?style=flat-square)](CHANGELOG.md)
 [![VS Code](https://img.shields.io/badge/VS%20Code-1.85%2B-288b28?style=flat-square)](https://code.visualstudio.com/)
 [![License](https://img.shields.io/badge/license-GPL--3.0-264c26?style=flat-square)](LICENSE.txt)
 [![Languages](https://img.shields.io/badge/interface-English%20%7C%20Русский-54ad54?style=flat-square)](#interface-language)
@@ -19,21 +19,19 @@ Courses, theory, quizzes, code, exams, video, and discussions — all in one VS 
 
 ![Stepik task panel in VS Code](media/task.png)
 
-## What's new in 0.4.11
+## What's new in 0.4.12
 
-- **Solved tasks reopen with the submitted answer.** Choice, short answer,
-  number, formula, free-answer, sorting, matching, table, fill-blanks, SQL,
-  HTML, dataset, chemistry, and puzzle steps restore their answer from Stepik.
-- **A solved task cannot be edited by accident.** The form stays locked until
-  you press **Edit** or **Start over**; an answer that is still being reviewed
-  shows a pending state.
-- **Clear status.** The panel shows a banner with the score and feedback, and a
-  hint to fix the answer after a wrong attempt.
-- **Fill-blanks fixed.** Inputs and selects are prefilled from the saved answer,
-  every blank is required, and select values are checked against the Stepik
-  dataset.
-- **Everything from 0.4.10 is preserved:** the fixed activity calendar and
-  step-type icons.
+- **The answer no longer resets when you switch tasks.** The attempts request
+  used `user=me`, which Stepik rejects, so the extension created a new attempt
+  every time a step was opened. It now uses the real user id, and the submitted
+  answer stays in place.
+- **Old empty attempts recover the answer.** If a previous version already
+  created an extra attempt, the extension finds the attempt that owns the last
+  answer and shows it.
+- **Start over is not undone by a reload.** The fresh attempt stays empty after
+  the extension restarts.
+- **Everything from 0.4.11 is preserved:** restored answers, solved-task locks,
+  banners, and the fill-blanks fixes.
 
 ## Features
 
@@ -86,12 +84,12 @@ Replies to comments, solution checks, and other Stepik events.
 
 ### Ready-made VSIX
 
-1. Download `stepik-vscode-fork-0.4.11.vsix` from
+1. Download `stepik-vscode-fork-0.4.12.vsix` from
    [Releases](https://github.com/danilproskurin291-cmd/stepik-vscode/releases).
 2. Install it:
 
    ```bash
-   code --install-extension stepik-vscode-fork-0.4.11.vsix
+   code --install-extension stepik-vscode-fork-0.4.12.vsix
    ```
 
    Or open **Extensions → … → Install from VSIX…** and pick the file.
@@ -107,7 +105,7 @@ Requires Node.js 18+.
 npm ci
 npm run build
 npx @vscode/vsce package
-code --install-extension stepik-vscode-fork-0.4.11.vsix
+code --install-extension stepik-vscode-fork-0.4.12.vsix
 ```
 
 ## Quick start
@@ -432,7 +430,7 @@ npx @vscode/vsce package
 ```
 
 Build output: `dist/extension.js` and `dist/audioWorker.js`.
-Installer: `stepik-vscode-fork-0.4.11.vsix`.
+Installer: `stepik-vscode-fork-0.4.12.vsix`.
 
 ## Limitations
 

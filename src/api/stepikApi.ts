@@ -511,10 +511,13 @@ export interface Attempt {
 
 export interface Submission {
     id: number;
-    /** Attempt the submission belongs to. Used to restore the current attempt. */
-    attempt?: number;
-    step?: number;
-    user?: number;
+    /**
+     * Attempt the submission belongs to. Stepik's API docs type related ids
+     * as strings, while the JSON usually contains numbers; accept both.
+     */
+    attempt?: number | string;
+    step?: number | string;
+    user?: number | string;
     status: string;
     score: number;
     hint: string;
@@ -1279,8 +1282,11 @@ export class StepikApi {
      */
     async getUserSubmissions(stepId: number): Promise<Submission[]> {
         const user = await this.getCurrentUser();
+        // Stepik paginates submissions and 20 is the default page size. A
+        // solved task can have more than 20 submissions, so ask for a larger
+        // page instead of silently dropping the answer that matters.
         const data = await this.cachedRequest<{ submissions: Submission[] }>(
-            `/submissions?step=${stepId}&user=${user.id}&order=desc&page=1`,
+            `/submissions?step=${stepId}&user=${user.id}&order=desc&page=1&page_size=100`,
             60_000
         );
         return data.submissions || [];
@@ -1461,32 +1467,47 @@ export class StepikApi {
     }
 
     async getAttempts(stepId: number): Promise<Attempt[]> {
+        // The `user` filter only accepts a concrete user id. Stepik rejects
+        // `user=me` with 400 Bad Request, which used to make every step open
+        // fall back to creating a brand-new attempt and lose the submitted
+        // answer. Resolve the current user first, exactly like submissions do.
+        const user = await this.getCurrentUser();
         const data = await this.cachedRequest<{ attempts: Attempt[] }>(
-            `/attempts?step=${stepId}&user=me`,
+            `/attempts?step=${stepId}&user=${user.id}&page=1&page_size=100`,
             60_000
         );
         return (data.attempts || []).sort((left, right) => right.id - left.id);
+    }
+
+    /** Load one attempt by id when it is not present in the step list. */
+    async getAttemptById(attemptId: number): Promise<Attempt | undefined> {
+        try {
+            const data = await this.cachedRequest<{ attempts: Attempt[] }>(
+                `/attempts/${attemptId}`,
+                60_000
+            );
+            return data.attempts?.[0];
+        } catch {
+            return undefined;
+        }
     }
 
     /**
      * Reuse the latest attempt instead of POSTing a new one every time a step
      * is opened. Stepik's web client keeps one attempt per step and lets the
      * user send several submissions into it.
+     *
+     * A failed attempts request must not silently create a new attempt: that
+     * would wipe the visible answer of an already solved step. Only a
+     * successfully loaded empty list starts a fresh attempt.
      */
     async getAttempt(stepId: number): Promise<Attempt> {
-        try {
-            const attempts = await this.getAttempts(stepId);
-            const latest = attempts.find(
-                attempt => attempt.status !== 'outdated' && attempt.status !== 'cleanedup'
-            );
-            if (latest) {
-                return latest;
-            }
-        } catch (error) {
-            // Older Stepik deployments may reject the attempts listing. Do
-            // not break the whole task because of that; a fresh attempt is a
-            // safe fallback.
-            console.warn('[Stepik] Failed to load attempts:', error);
+        const attempts = await this.getAttempts(stepId);
+        const latest = attempts.find(
+            attempt => attempt.status !== 'outdated' && attempt.status !== 'cleanedup'
+        );
+        if (latest) {
+            return latest;
         }
         return this.createAttempt(stepId);
     }

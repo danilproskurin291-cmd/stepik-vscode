@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.4.12] - 2026-11-08
+
+### Fixed
+
+- Reopening a step no longer creates a new attempt and wipes the submitted
+  answer. Stepik rejects the `user=me` filter with `400 Bad Request`, so the
+  extension now resolves the current user id and requests `/attempts` with it.
+- A failed attempts request no longer falls back to creating a new attempt;
+  only a successfully loaded empty list starts a fresh one.
+- Answers from an older attempt left by a previous extension version are
+  restored, while an attempt created by an explicit **Start over** stays empty.
+  Restart exclusions are persisted across extension reloads.
+- String attempt ids returned by the Stepik API are matched against numeric
+  ids, and delayed step loads can no longer overwrite the answer of a newer
+  step after fast navigation.
+
 ## [0.4.11] - 2026-11-08
 
 ### Added
