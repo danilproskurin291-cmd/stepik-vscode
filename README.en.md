@@ -8,7 +8,7 @@
 
 Courses, theory, quizzes, code, exams, video, and discussions — all in one VS Code window.
 
-[![Version](https://img.shields.io/badge/version-0.4.7-54ad54?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.4.9-54ad54?style=flat-square)](CHANGELOG.md)
 [![VS Code](https://img.shields.io/badge/VS%20Code-1.85%2B-288b28?style=flat-square)](https://code.visualstudio.com/)
 [![License](https://img.shields.io/badge/license-GPL--3.0-264c26?style=flat-square)](LICENSE.txt)
 [![Languages](https://img.shields.io/badge/interface-English%20%7C%20Русский-54ad54?style=flat-square)](#interface-language)
@@ -19,21 +19,27 @@ Courses, theory, quizzes, code, exams, video, and discussions — all in one VS 
 
 ![Stepik task panel in VS Code](media/task.png)
 
-## What's new in 0.4.7
+## What's new in 0.4.9
 
-- **Dark theme in Stepik style.** Every extension panel shares the Stepik palette
-  and looks correct in light, dark, and high-contrast VS Code themes.
-- **Switchable interface language.** Russian and English, following the VS Code
-  display language automatically or selected manually.
-- **New 128×128 icon** for the Marketplace and the Extensions view.
-- **Updated README and screenshots** with a privacy-safe OAuth walkthrough.
+- **High-contrast Stepik icon.** Every panel tab now uses a green Stepik badge,
+  so the icon no longer looks black on dark themes. The activity bar shows a
+  filled S mark, and the task panel has its own tab icon.
+- **A clear screen for random tasks.** `random-tasks` steps no longer open
+  empty: the panel explains that Stepik generates the task on its side and
+  links to the step on the website.
+- **Step-type icons.** Math, sorting, matching, table, fill-blanks, SQL, HTML,
+  dataset, free-answer, and random-task steps now have dedicated icons in the
+  course tree.
+- **Dark theme and switchable language** from 0.4.7 are preserved: panels look
+  correct in light, dark, and high-contrast themes, and the interface switches
+  between Russian and English.
 
 ## Features
 
 | | |
 | --- | --- |
 | 📚 **Course tree** | Sections, lessons, and steps with progress markers in the sidebar. |
-| 🧩 **Every task type** | Quizzes, short answers, numbers, formulas, sorting, tables, blanks, SQL, HTML/CSS, chemistry, and code. |
+| 🧩 **Every task type** | Quizzes, short answers, numbers, formulas, sorting, tables, blanks, SQL, HTML/CSS, chemistry, puzzles, code, and random tasks. |
 | 💻 **Solutions as files** | A dedicated `~/stepik/<account>` folder with a course → lesson → step layout. |
 | ✅ **Checks and retries** | Submit from the editor, read detailed feedback, and retry in one click. |
 | ⏱ **Exams** | Timer, submission lock after the deadline, and active-session recovery. |
@@ -79,12 +85,12 @@ Replies to comments, solution checks, and other Stepik events.
 
 ### Ready-made VSIX
 
-1. Download `stepik-vscode-fork-0.4.7.vsix` from
+1. Download `stepik-vscode-fork-0.4.9.vsix` from
    [Releases](https://github.com/danilproskurin291-cmd/stepik-vscode/releases).
 2. Install it:
 
    ```bash
-   code --install-extension stepik-vscode-fork-0.4.7.vsix
+   code --install-extension stepik-vscode-fork-0.4.9.vsix
    ```
 
    Or open **Extensions → … → Install from VSIX…** and pick the file.
@@ -100,7 +106,7 @@ Requires Node.js 18+.
 npm ci
 npm run build
 npx @vscode/vsce package
-code --install-extension stepik-vscode-fork-0.4.7.vsix
+code --install-extension stepik-vscode-fork-0.4.9.vsix
 ```
 
 ## Quick start
@@ -224,15 +230,30 @@ file-to-task mapping.
 
 ### Other task types
 
-Every checkable Stepik type is supported: `choice`, `string`, `number`, `math`,
-`free-answer`, `sorting`, `matching`, `table`, `fill-blanks`, `sql`, `html`,
-`dataset`, `chemical`, `puzzle`, and `code`.
+Every checkable Stepik type is supported. Usually you fill in the form and
+click **Submit**. If the answer is wrong, details appear in a notification and
+in **Output → Stepik**.
 
-Usually you fill in the form and click **Submit**. If the answer is wrong,
-details appear in a notification and in **Output → Stepik**.
+| Step type | What the extension does |
+| --- | --- |
+| `text` | Shows the theory and marks the step as viewed. |
+| `video` | Built-in player with quality, subtitles, and view tracking. |
+| `choice` | One or several answer options. |
+| `string`, `number` | Short text or numeric answer. |
+| `math` | Formula with equivalence checking. |
+| `free-answer` | Free-form answer (no file attachments). |
+| `sorting`, `matching`, `table` | Sorting, pairs, and table tasks. |
+| `fill-blanks` | Blanks: typed input or a selection from a list. |
+| `sql`, `html` | SQL and HTML/CSS tasks with checks. |
+| `dataset` | Data file and solution submission. |
+| `chemical`, `puzzle` | Chemical formula and puzzle. |
+| `code` | Solution file in the editor, language selection, and submission. |
+| `random-tasks` | Hint and a link to the step: the random task is generated on Stepik's side. |
 
-`text` and `random-tasks` steps open as reading material and are marked as
-viewed automatically.
+`text` and `video` steps open as reading material and are marked as viewed
+automatically. For `random-tasks` the extension does not create an attempt:
+instead of an answer form it shows a hint and an **Open the step on Stepik ↗**
+link.
 
 ## Exams
 
@@ -410,7 +431,7 @@ npx @vscode/vsce package
 ```
 
 Build output: `dist/extension.js` and `dist/audioWorker.js`.
-Installer: `stepik-vscode-fork-0.4.7.vsix`.
+Installer: `stepik-vscode-fork-0.4.9.vsix`.
 
 ## Limitations
 

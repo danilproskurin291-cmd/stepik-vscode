@@ -262,7 +262,7 @@ export class StepikNotificationsView implements vscode.Disposable {
         panel.iconPath = vscode.Uri.joinPath(
             this.context.extensionUri,
             'resources',
-            'stepik.svg'
+            'stepik-badge.svg'
         );
 
         const listener = panel.webview.onDidReceiveMessage(message =>

@@ -411,6 +411,12 @@ export class StepikWebview implements vscode.Disposable {
                 }
             );
 
+            this.panel.iconPath = vscode.Uri.joinPath(
+                this.context.extensionUri,
+                'resources',
+                'stepik-badge.svg'
+            );
+
             this.panel.onDidDispose(() => {
                 this.panel = undefined;
                 // Closing the panel removes its editor group; VS Code restores
@@ -3791,7 +3797,9 @@ export class StepikWebview implements vscode.Disposable {
     private getHtmlContent(step: Step): string {
         const stepType = step.block.name;
         const isCodeTask = stepType === 'code';
-        const isQuizTask = ATTEMPT_STEP_TYPES.has(stepType);
+        // Random-task steps have no attempt: Stepik generates the task on its
+        // side, so the panel only shows a hint and a link to the step.
+        const isQuizTask = ATTEMPT_STEP_TYPES.has(stepType) || stepType === 'random-tasks';
         const nonce = crypto.randomBytes(16).toString('hex');
         
         const languages = step.block.options?.code_templates 
@@ -4005,7 +4013,7 @@ export class StepikWebview implements vscode.Disposable {
         const stepType = step.block.name;
         const dataset = this.getAttemptDataset() || {};
 
-        if (stepType !== 'puzzle' && !this.currentAttempt) {
+        if (stepType !== 'puzzle' && stepType !== 'random-tasks' && !this.currentAttempt) {
             return this.getQuizErrorHtml(
                 t('task.createAttemptFailed')
             );
@@ -4274,6 +4282,16 @@ export class StepikWebview implements vscode.Disposable {
                         <span>${t('task.puzzleSolved')}</span>
                     </label>
                     ${this.getQuizStatusHtml()}
+                </div>
+            `;
+        }
+
+        if (stepType === 'random-tasks') {
+            const stepUrl = `https://stepik.org/lesson/${step.lesson}/step/${step.position}`;
+            return `
+                <div class="quiz-section">
+                    <div class="quiz-hint">${t('task.randomTasksHint')}</div>
+                    <a class="stepik-link" href="${stepUrl}" data-external="true">${t('task.openStepOnStepik')}</a>
                 </div>
             `;
         }

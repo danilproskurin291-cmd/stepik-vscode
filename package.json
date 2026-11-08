@@ -3,7 +3,7 @@
 	"displayName": "Stepik Fork",
 	"description": "Fork of Stepik for VS Code: solve Stepik problems, read discussions and post comments",
 	"author": "Danil Proskurin (꧁༒☬𝔉𝔜𝔡𝔡𝔡𝔡𝔰𝔰☬༒꧂)",
-	"version": "0.4.7",
+	"version": "0.4.9",
 	"publisher": "FYddddss",
 	"license": "GPL-3.0-only",
 	"icon": "resources/icon.png",
@@ -112,7 +112,7 @@
 		"views": {
 			"stepik": [
 				{
-					"icon": "resources/stepik.svg",
+					"icon": "resources/stepik-badge.svg",
 					"id": "stepikCourses",
 					"name": "Courses"
 				}

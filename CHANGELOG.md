@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.4.9] - 2026-11-07
+
+### Fixed
+
+- Random-task steps no longer open as an empty panel: the task view now
+  explains that Stepik generates the task on its side and links to the step.
+- Step tree icons now reflect the actual type for math, sorting, matching,
+  table, fill-blanks, SQL, HTML, dataset, free-answer, and random-task steps.
+
+## [0.4.8] - 2026-11-07
+
+### Fixed
+
+- Stepik tabs no longer show a black icon on a dark editor background. All
+  webview panels now use a high-contrast green Stepik badge that stays readable
+  in light, dark, and high-contrast themes.
+- The task panel now shows the Stepik icon in its editor tab instead of the
+  generic file icon.
+- The activity bar icon is now a crisp filled Stepik mark instead of a thin
+  black outline, so it renders correctly in every VS Code theme.
+
 ## [0.4.7] - 2026-11-04
 
 ### Added

@@ -713,7 +713,17 @@ export class StepikTreeProvider implements vscode.TreeDataProvider<TreeItemData>
             'text': 'book',
             'video': 'play-circle',
             'string': 'whole-word',
-            'number': 'symbol-number'
+            'number': 'symbol-number',
+            'math': 'symbol-operator',
+            'sorting': 'list-ordered',
+            'matching': 'link',
+            'table': 'table',
+            'fill-blanks': 'edit',
+            'sql': 'database',
+            'html': 'code',
+            'dataset': 'file-binary',
+            'free-answer': 'comment-discussion',
+            'random-tasks': 'refresh'
         };
         return icons[type] || 'circle-outline';
     }
