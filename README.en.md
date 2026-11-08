@@ -8,7 +8,7 @@
 
 Courses, theory, quizzes, code, exams, video, and discussions — all in one VS Code window.
 
-[![Version](https://img.shields.io/badge/version-0.4.13-54ad54?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.4.14-54ad54?style=flat-square)](CHANGELOG.md)
 [![VS Code](https://img.shields.io/badge/VS%20Code-1.85%2B-288b28?style=flat-square)](https://code.visualstudio.com/)
 [![License](https://img.shields.io/badge/license-GPL--3.0-264c26?style=flat-square)](LICENSE.txt)
 [![Languages](https://img.shields.io/badge/interface-English%20%7C%20Русский-54ad54?style=flat-square)](#interface-language)
@@ -19,17 +19,16 @@ Courses, theory, quizzes, code, exams, video, and discussions — all in one VS 
 
 ![Stepik task panel in VS Code](media/task.png)
 
-## What's new in 0.4.13
+## What's new in 0.4.14
 
-- **Formulas render correctly again.** The extension switched from MathML to
-  KaTeX HTML output with bundled web fonts, so `\mathbb{N}`, `\mathbb{Z}`,
-  `\mathcal`, `\mathfrak`, and matrices look the same as on Stepik.
-- **Formulas in dropdowns.** Matching and fill-blanks options are shown as
-  readable text: `ℕ`, `ℤ`, `x²`, `(1)/(2)`, `∅`.
-- **Line breaks in formulas.** Stepik's `\\ [10pt]` service markup is no longer
-  printed as literal text.
-- **Everything from 0.4.12 is preserved:** answers stay in place when switching
-  tasks, and **Start over** survives a reload.
+- **Fill-blanks tasks no longer report a submission error.** Stepik returns
+  their `feedback` as `{ blanks_feedback: [...] }`, and the extension tried to
+  treat it as a string. The answer was actually submitted, but the panel showed
+  `(e || "").trim is not a function` instead of the result.
+- **Clearer blank checking.** A wrong answer now lists which blanks are correct
+  and which are not.
+- **Everything from 0.4.13 is preserved:** KaTeX formulas, bundled fonts, and
+  readable dropdown options.
 
 ## Features
 
@@ -82,12 +81,12 @@ Replies to comments, solution checks, and other Stepik events.
 
 ### Ready-made VSIX
 
-1. Download `stepik-vscode-fork-0.4.13.vsix` from
+1. Download `stepik-vscode-fork-0.4.14.vsix` from
    [Releases](https://github.com/danilproskurin291-cmd/stepik-vscode/releases).
 2. Install it:
 
    ```bash
-   code --install-extension stepik-vscode-fork-0.4.13.vsix
+   code --install-extension stepik-vscode-fork-0.4.14.vsix
    ```
 
    Or open **Extensions → … → Install from VSIX…** and pick the file.
@@ -103,7 +102,7 @@ Requires Node.js 18+.
 npm ci
 npm run build
 npx @vscode/vsce package
-code --install-extension stepik-vscode-fork-0.4.13.vsix
+code --install-extension stepik-vscode-fork-0.4.14.vsix
 ```
 
 ## Quick start
@@ -430,7 +429,7 @@ npx @vscode/vsce package
 ```
 
 Build output: `dist/extension.js` and `dist/audioWorker.js`.
-Installer: `stepik-vscode-fork-0.4.13.vsix`.
+Installer: `stepik-vscode-fork-0.4.14.vsix`.
 
 ## Limitations
 

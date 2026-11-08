@@ -172,7 +172,7 @@ export class StepikSubmit {
         submissionId: number, 
         maxAttempts: number = 30,
         intervalMs: number = 1000
-    ): Promise<{ status: string; score: number; hint: string; feedback: string }> {
+    ): Promise<{ status: string; score: number; hint: unknown; feedback: unknown }> {
         for (let i = 0; i < maxAttempts; i++) {
             const submission = await this.api.getSubmission(submissionId);
             
@@ -186,7 +186,7 @@ export class StepikSubmit {
         throw new Error('Submission evaluation timeout');
     }
 
-    private showResult(result: { status: string; score: number; hint: string; feedback: string }, stepId: number): void {
+    private showResult(result: { status: string; score: number; hint: unknown; feedback: unknown }, stepId: number): void {
         const isCorrect = result.status === 'correct';
         
         if (isCorrect) {

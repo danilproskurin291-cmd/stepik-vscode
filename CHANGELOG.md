@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.4.14] - 2026-11-08
+
+### Fixed
+
+- Fill-blanks submissions no longer fail with
+  `(e || "").trim is not a function`. Stepik returns `feedback` as
+  `{ blanks_feedback: [...] }` for these steps, and the extension tried to
+  treat it as a string. The answer was actually submitted, but the panel
+  reported a submission error instead of showing the result.
+- Wrong-answer feedback for fill-blanks now lists the correct and incorrect
+  blank numbers.
+
 ## [0.4.13] - 2026-11-08
 
 ### Fixed

@@ -509,6 +509,12 @@ export interface Attempt {
     status?: string;
 }
 
+export type SubmissionFeedback =
+    | string
+    | unknown[]
+    | Record<string, unknown>
+    | null;
+
 export interface Submission {
     id: number;
     /**
@@ -520,8 +526,8 @@ export interface Submission {
     user?: number | string;
     status: string;
     score: number;
-    hint: string;
-    feedback: string;
+    hint: SubmissionFeedback;
+    feedback: SubmissionFeedback;
     is_partially_correct?: boolean;
     time?: string;
     reply?: {

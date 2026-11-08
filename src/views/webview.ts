@@ -3696,6 +3696,52 @@ export class StepikWebview implements vscode.Disposable {
         }
     }
 
+    /**
+     * Fill-blanks submissions return a structured feedback object instead of
+     * text: `{ blanks_feedback: [true, false, ...] }`. Render it as a readable
+     * list of correct and incorrect blank numbers.
+     */
+    private getBlanksFeedback(feedback: unknown): string {
+        if (!feedback || typeof feedback !== 'object' || Array.isArray(feedback)) {
+            return '';
+        }
+
+        const flags = (feedback as { blanks_feedback?: unknown }).blanks_feedback;
+        if (!Array.isArray(flags) || flags.length === 0) {
+            return '';
+        }
+
+        const correct: number[] = [];
+        const wrong: number[] = [];
+        flags.forEach((flag, index) => {
+            (flag === true ? correct : wrong).push(index + 1);
+        });
+
+        return t('task.blanksFeedback', {
+            correct: correct.length > 0 ? correct.join(', ') : '—',
+            wrong: wrong.length > 0 ? wrong.join(', ') : '—'
+        });
+    }
+
+    private getSubmissionFeedbackText(
+        submission: Submission,
+        stepType: string
+    ): string {
+        const detail = combineSubmissionFeedback(
+            submission.hint,
+            submission.feedback
+        );
+        if (stepType !== 'fill-blanks') {
+            return detail;
+        }
+
+        const blanks = this.getBlanksFeedback(submission.feedback);
+        if (!blanks) {
+            return detail;
+        }
+        return detail ? `${detail}\n${blanks}` : blanks;
+    }
+
     private buildQuizReply(stepType: string, message: WebviewMessage): QuizReply | undefined {
         if (message.reply) {
             return message.reply;
@@ -3932,7 +3978,7 @@ export class StepikWebview implements vscode.Disposable {
                 this.treeProvider.markStepAsPassed(stepId);
                 this.treeProvider.refresh();
 
-                const detail = combineSubmissionFeedback(result.hint, result.feedback);
+                const detail = this.getSubmissionFeedbackText(result, stepType);
                 if (isCurrentStep) {
                     this.postQuizStatus(
                         'success',
@@ -3962,7 +4008,7 @@ export class StepikWebview implements vscode.Disposable {
                 if (isCurrentStep) {
                     this.quizEditUnlocked = true;
                 }
-                const detail = combineSubmissionFeedback(result.hint, result.feedback);
+                const detail = this.getSubmissionFeedbackText(result, stepType);
                 if (isCurrentStep) {
                     this.postQuizStatus(
                         'error',
@@ -4694,7 +4740,10 @@ export class StepikWebview implements vscode.Disposable {
                       )}</span>`
                     : '';
             const feedback = submission
-                ? combineSubmissionFeedback(submission.hint, submission.feedback)
+                ? this.getSubmissionFeedbackText(
+                      submission,
+                      this.currentStep?.step.block.name || ''
+                  )
                 : '';
             return `
                 ${status}
