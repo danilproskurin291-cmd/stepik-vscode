@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.4.13] - 2026-11-08
+
+### Fixed
+
+- Formulas now render with KaTeX HTML output and bundled web fonts instead of
+  MathML. Chromium does not support the `mathvariant` attribute, so `\mathbb{N}`,
+  `\mathbb{Z}`, `\mathbb{Q}`, `\mathbb{R}`, `\mathbb{C}`, `\mathcal`,
+  `\mathfrak` and matrices were displayed as plain letters or broken layouts.
+  The hidden MathML copy is kept for screen readers.
+- Stepik line-break spacing such as `\\ [10pt]` is normalized and no longer
+  printed as literal text inside a formula.
+- Formulas inside matching and fill-blanks dropdowns are converted to readable
+  Unicode text (`ℕ`, `ℤ`, `x²`, `(1)/(2)`, `∅`) because native `<option>`
+  elements cannot contain KaTeX markup.
+
 ## [0.4.12] - 2026-11-08
 
 ### Fixed

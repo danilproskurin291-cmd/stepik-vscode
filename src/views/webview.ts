@@ -481,6 +481,9 @@ export class StepikWebview implements vscode.Disposable {
 
             this.panel.onDidDispose(() => {
                 this.panel = undefined;
+                // KaTeX font URLs are webview-specific, so the cached styles
+                // must be rebuilt for the next panel.
+                this.stylesCache = undefined;
                 // Closing the panel removes its editor group; VS Code restores
                 // the remaining layout on its own.
                 this.videoTheaterActive = false;
@@ -3026,7 +3029,7 @@ export class StepikWebview implements vscode.Disposable {
                         throwOnError: false,
                         strict: 'ignore',
                         trust: false,
-                        output: 'mathml'
+                        output: 'htmlAndMathml'
                     });
                     await this.respondToCommentEditor(message, { html });
                     return;
@@ -4256,7 +4259,7 @@ export class StepikWebview implements vscode.Disposable {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src https: data: ${this.panel?.webview.cspSource ?? ''}; style-src 'unsafe-inline'; script-src 'nonce-${nonce}'; font-src https: data:; media-src https: ${this.panel?.webview.cspSource ?? ''};">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src https: data: ${this.panel?.webview.cspSource ?? ''}; style-src 'unsafe-inline'; script-src 'nonce-${nonce}'; font-src https: data: ${this.panel?.webview.cspSource ?? ''}; media-src https: ${this.panel?.webview.cspSource ?? ''};">
     <title>${t('task.panelTitle', { position: step.position })}</title>
     <style>
         ${this.getStyles()}
@@ -4402,6 +4405,141 @@ export class StepikWebview implements vscode.Disposable {
             .replace(/&#39;|&apos;/gi, "'")
             .replace(/\s+/g, ' ')
             .trim();
+    }
+
+    /**
+     * Native <option> elements can only contain text, so formulas inside
+     * matching and fill-blanks dropdowns cannot use KaTeX HTML. Convert the
+     * common TeX commands to their Unicode equivalents instead of showing raw
+     * \(...\) or $...$ source.
+     */
+    private mathToPlainText(html: string): string {
+        const text = this.htmlToText(html);
+        if (
+            !text ||
+            (!text.includes('$') && !text.includes('\\(') && !text.includes('\\['))
+        ) {
+            return text;
+        }
+
+        const replace = (value: string): string => this.texToPlainText(value);
+        return text
+            .replace(/\$\$([\s\S]+?)\$\$/g, (_match, tex: string) => replace(tex))
+            .replace(/\\\[([\s\S]+?)\\\]/g, (_match, tex: string) => replace(tex))
+            .replace(/\\\(([\s\S]+?)\\\)/g, (_match, tex: string) => replace(tex))
+            .replace(
+                /(?<!\\)\$(?!\s)((?:\\.|[^$\\])+?)(?<!\s)(?<!\\)\$/g,
+                (_match, tex: string) => replace(tex)
+            );
+    }
+
+    private texToPlainText(tex: string): string {
+        let value = this.decodeMathEntities(tex).trim();
+
+        const doubleStruck: { [key: string]: string } = {
+            A: '𝔸', B: '𝔹', C: 'ℂ', D: '𝔻', E: '𝔼', F: '𝔽', G: '𝔾',
+            H: 'ℍ', I: '𝕀', J: '𝕁', K: '𝕂', L: '𝕃', M: '𝕄', N: 'ℕ',
+            O: '𝕆', P: 'ℙ', Q: 'ℚ', R: 'ℝ', S: '𝕊', T: '𝕋', U: '𝕌',
+            V: '𝕍', W: '𝕎', X: '𝕏', Y: '𝕐', Z: 'ℤ',
+            a: '𝕒', b: '𝕓', c: '𝕔', d: '𝕕', e: '𝕖', f: '𝕗', g: '𝕘',
+            h: '𝕙', i: '𝕚', j: '𝕛', k: '𝕜', l: '𝕝', m: '𝕞', n: '𝕟',
+            o: '𝕠', p: '𝕡', q: '𝕢', r: '𝕣', s: '𝕤', t: '𝕥', u: '𝕦',
+            v: '𝕧', w: '𝕨', x: '𝕩', y: '𝕪', z: '𝕫',
+            '0': '𝟘', '1': '𝟙', '2': '𝟚', '3': '𝟛', '4': '𝟜',
+            '5': '𝟝', '6': '𝟞', '7': '𝟟', '8': '𝟠', '9': '𝟡'
+        };
+        value = value.replace(
+            /\\mathbb\s*\{([^{}]+)\}/g,
+            (_match, chars: string) =>
+                chars
+                    .split('')
+                    .map(char => doubleStruck[char] ?? char)
+                    .join('')
+        );
+
+        value = value.replace(
+            /\\(?:text|textrm|textnormal|textup|textit|textbf|textsf|texttt|mbox|mathrm|mathbf|mathit|mathsf|mathtt|mathcal|mathscr|mathfrak)\s*\{([^{}]*)\}/g,
+            '$1'
+        );
+
+        value = value.replace(
+            /\\(?:dfrac|tfrac|frac)\s*\{([^{}]*)\}\s*\{([^{}]*)\}/g,
+            '($1)/($2)'
+        );
+        value = value.replace(/\\sqrt\s*\{([^{}]*)\}/g, '√($1)');
+
+        const superscripts: { [key: string]: string } = {
+            '0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴',
+            '5': '⁵', '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹',
+            '+': '⁺', '-': '⁻', '=': '⁼', '(': '⁽', ')': '⁾',
+            n: 'ⁿ', i: 'ⁱ'
+        };
+        const subscripts: { [key: string]: string } = {
+            '0': '₀', '1': '₁', '2': '₂', '3': '₃', '4': '₄',
+            '5': '₅', '6': '₆', '7': '₇', '8': '₈', '9': '₉',
+            '+': '₊', '-': '₋', '=': '₌', '(': '₍', ')': '₎',
+            i: 'ᵢ', j: 'ⱼ', n: 'ₙ'
+        };
+        value = value.replace(/\^\{([^{}]+)\}/g, (_match, chars: string) => {
+            const mapped = chars.split('').map(char => superscripts[char]).join('');
+            return mapped.length === chars.length ? mapped : `^(${chars})`;
+        });
+        value = value.replace(/_\{([^{}]+)\}/g, (_match, chars: string) => {
+            const mapped = chars.split('').map(char => subscripts[char]).join('');
+            return mapped.length === chars.length ? mapped : `_(${chars})`;
+        });
+        value = value.replace(/\^([0-9ni])/g, (_match, char: string) =>
+            superscripts[char] ?? `^${char}`
+        );
+        value = value.replace(/_([0-9nij])/g, (_match, char: string) =>
+            subscripts[char] ?? `_${char}`
+        );
+
+        value = value
+            .replace(/\\\{/g, '{')
+            .replace(/\\\}/g, '}')
+            .replace(/\\&/g, '&')
+            .replace(/\\%/g, '%')
+            .replace(/\\_/g, '_')
+            .replace(/\\#/g, '#');
+
+        value = value.replace(
+            /\\(?:left|right|middle|big|Big|bigg|Bigg)\b/g,
+            ''
+        );
+        value = value.replace(/\\[,;:! ]/g, ' ');
+        value = value.replace(/\\quad\b/g, ' ');
+        value = value.replace(/\\qquad\b/g, ' ');
+
+        const symbols: { [key: string]: string } = {
+            varnothing: '∅', emptyset: '∅', infty: '∞', in: '∈', notin: '∉',
+            subset: '⊂', subseteq: '⊆', supset: '⊃', supseteq: '⊇',
+            cup: '∪', cap: '∩', setminus: '∖',
+            le: '≤', leq: '≤', ge: '≥', geq: '≥', ne: '≠', neq: '≠',
+            approx: '≈', equiv: '≡', sim: '∼', simeq: '≃', cong: '≅',
+            pm: '±', mp: '∓', times: '×', div: '÷', cdot: '·', ast: '∗',
+            ldots: '…', dots: '…', cdots: '⋯', vdots: '⋮', ddots: '⋱',
+            forall: '∀', exists: '∃', neg: '¬', land: '∧', lor: '∨',
+            Rightarrow: '⇒', Leftarrow: '⇐', leftrightarrow: '↔',
+            rightarrow: '→', leftarrow: '←', to: '→', mapsto: '↦',
+            partial: '∂', nabla: '∇', angle: '∠', degree: '°', deg: '°',
+            prime: '′', hbar: 'ℏ', ell: 'ℓ', Re: 'ℜ', Im: 'ℑ',
+            alpha: 'α', beta: 'β', gamma: 'γ', delta: 'δ', epsilon: 'ε',
+            varepsilon: 'ε', zeta: 'ζ', eta: 'η', theta: 'θ', vartheta: 'ϑ',
+            iota: 'ι', kappa: 'κ', lambda: 'λ', mu: 'μ', nu: 'ν', xi: 'ξ',
+            omicron: 'ο', pi: 'π', varpi: 'ϖ', rho: 'ρ', varrho: 'ϱ',
+            sigma: 'σ', varsigma: 'ς', tau: 'τ', upsilon: 'υ', phi: 'φ',
+            varphi: 'ϕ', chi: 'χ', psi: 'ψ', omega: 'ω',
+            Gamma: 'Γ', Delta: 'Δ', Theta: 'Θ', Lambda: 'Λ', Xi: 'Ξ',
+            Pi: 'Π', Sigma: 'Σ', Upsilon: 'Υ', Phi: 'Φ', Psi: 'Ψ', Omega: 'Ω'
+        };
+        value = value.replace(/\\([a-zA-Z]+)/g, (_match, command: string) => {
+            const symbol = symbols[command];
+            return symbol !== undefined ? symbol : command;
+        });
+
+        value = value.replace(/[{}]/g, '');
+        return value.replace(/\s+/g, ' ').trim();
     }
 
     private getSubmissionReply(): NonNullable<Submission['reply']> | undefined {
@@ -4723,9 +4861,9 @@ export class StepikWebview implements vscode.Disposable {
                             return `
                             <div class="matching-row">
                                 <div class="matching-left">${this.getQuizContentHtml(pair.first)}</div>
-                                <select class="matching-select" data-left-index="${index}" aria-label="${this.escapeHtml(t('task.matchingAria', { item: this.htmlToText(pair.first) }))}">
+                                <select class="matching-select" data-left-index="${index}" aria-label="${this.escapeHtml(t('task.matchingAria', { item: this.mathToPlainText(pair.first) }))}">
                                     ${pairs.map((candidate, candidateIndex) => `
-                                        <option value="${candidateIndex}" ${candidateIndex === (selectedIndex ?? index) ? 'selected' : ''}>${this.escapeHtml(this.htmlToText(candidate.second) || '—')}</option>
+                                        <option value="${candidateIndex}" ${candidateIndex === (selectedIndex ?? index) ? 'selected' : ''}>${this.escapeHtml(this.mathToPlainText(candidate.second) || '—')}</option>
                                     `).join('')}
                                 </select>
                             </div>
@@ -4763,7 +4901,7 @@ export class StepikWebview implements vscode.Disposable {
                                                     data-row-index="${rowIndex}"
                                                     data-column-index="${columnIndex}"
                                                     ${this.isTableChoiceSelected(rowIndex, columnIndex, row, column) ? 'checked' : ''}
-                                                    aria-label="${this.escapeHtml(this.htmlToText(row))} — ${this.escapeHtml(this.htmlToText(column))}">
+                                                    aria-label="${this.escapeHtml(this.mathToPlainText(row))} — ${this.escapeHtml(this.mathToPlainText(column))}">
                                             </td>
                                         `).join('')}
                                     </tr>
@@ -4793,7 +4931,7 @@ export class StepikWebview implements vscode.Disposable {
                     const selectedValue = this.getBlankSelectValue(rawValue, options);
                     return `<select class="blank-select" data-blank-index="${currentIndex}" aria-label="${t('task.blankAria', { number: currentIndex + 1 })}">
                         <option value="">${t('task.blankChoose')}</option>
-                        ${options.map(option => `<option value="${this.escapeHtml(option)}"${option === selectedValue ? ' selected' : ''}>${this.escapeHtml(this.htmlToText(option))}</option>`).join('')}
+                        ${options.map(option => `<option value="${this.escapeHtml(option)}"${option === selectedValue ? ' selected' : ''}>${this.escapeHtml(this.mathToPlainText(option))}</option>`).join('')}
                     </select>`;
                 }
 
@@ -6156,15 +6294,25 @@ export class StepikWebview implements vscode.Disposable {
 
             const token = `${tokenBase}${rendered.length}${tokenSuffix}`;
             try {
-                const mathml = katex.renderToString(this.prepareMathForKatex(source), {
-                    displayMode,
-                    output: 'mathml',
-                    throwOnError: false,
-                    strict: 'ignore',
-                    trust: false
-                });
+                // Stepik authors often write "\\ [10pt]" (a line break with
+                // extra spacing). KaTeX recognizes the optional argument only
+                // when the bracket immediately follows the double backslash.
+                const katexSource = source.replace(
+                    /\\\\\s*\[([^\]]*)\]/g,
+                    '\\\\[$1]'
+                );
+                const formula = katex.renderToString(
+                    this.prepareMathForKatex(katexSource),
+                    {
+                        displayMode,
+                        output: 'htmlAndMathml',
+                        throwOnError: false,
+                        strict: 'ignore',
+                        trust: false
+                    }
+                );
                 const className = displayMode ? 'math-display' : 'math-inline';
-                rendered.push(`<span class="${className}">${mathml}</span>`);
+                rendered.push(`<span class="${className}">${formula}</span>`);
             } catch {
                 rendered.push(
                     this.escapeHtml(displayMode ? `\\[${source}\\]` : `\\(${source}\\)`)
@@ -6388,11 +6536,68 @@ export class StepikWebview implements vscode.Disposable {
         return '';
     }
 
+    /**
+     * KaTeX HTML output needs its stylesheet and web fonts to render
+     * fractions, matrices, \mathbb, \mathcal and other variants correctly.
+     * The fonts are bundled under media/katex so the webview works offline.
+     * MathML output cannot express several of these variants in Chromium:
+     * for example, \mathbb{N} is rendered as a plain italic N.
+     */
+    private getKatexStyles(): string {
+        if (!this.panel) {
+            return '';
+        }
+
+        const roots = [
+            vscode.Uri.joinPath(this.context.extensionUri, 'media', 'katex'),
+            // Development fallback when the build copy has not run yet.
+            vscode.Uri.joinPath(
+                this.context.extensionUri,
+                'node_modules',
+                'katex',
+                'dist'
+            )
+        ];
+
+        for (const root of roots) {
+            const cssPath = vscode.Uri.joinPath(root, 'katex.min.css').fsPath;
+            if (!fs.existsSync(cssPath)) {
+                continue;
+            }
+
+            try {
+                const css = fs.readFileSync(cssPath, 'utf8');
+                return css.replace(
+                    /url\(fonts\/([^)]+)\)/g,
+                    (_match: string, file: string) => {
+                        const fontUri = this.panel!.webview.asWebviewUri(
+                            vscode.Uri.joinPath(root, 'fonts', file)
+                        );
+                        return `url("${fontUri}")`;
+                    }
+                );
+            } catch (error) {
+                this.outputChannel.appendLine(
+                    `[Math] Не удалось загрузить KaTeX CSS: ${
+                        error instanceof Error ? error.message : error
+                    }`
+                );
+                return '';
+            }
+        }
+
+        this.outputChannel.appendLine(
+            '[Math] KaTeX CSS не найден; формулы могут отображаться без оформления.'
+        );
+        return '';
+    }
+
     private getStyles(): string {
         if (this.stylesCache !== undefined) {
             return this.stylesCache;
         }
         this.stylesCache = `
+        ${this.getKatexStyles()}
         [hidden] {
             display: none !important;
         }
@@ -6808,6 +7013,13 @@ export class StepikWebview implements vscode.Disposable {
         }
         .math-display math {
             margin: 0 auto;
+        }
+        /* KaTeX's own display wrapper already adds vertical margins. */
+        .math-display > .katex-display {
+            margin: 0;
+        }
+        .math-inline > .katex {
+            white-space: nowrap;
         }
         math {
             font-size: 1.05em;
