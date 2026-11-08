@@ -461,7 +461,9 @@ export interface MatchingPair {
 export interface FillBlanksComponent {
     type: string;  // "text", "input" or "select"
     text?: string;
-    options?: string[];
+    // Stepik's dataset returns plain strings for select options, but older
+    // cached attempts may contain { text } objects. Both shapes are accepted.
+    options?: Array<string | { text?: string }>;
 }
 
 export interface TableColumnChoice {
@@ -509,10 +511,15 @@ export interface Attempt {
 
 export interface Submission {
     id: number;
+    /** Attempt the submission belongs to. Used to restore the current attempt. */
+    attempt?: number;
+    step?: number;
+    user?: number;
     status: string;
     score: number;
     hint: string;
     feedback: string;
+    is_partially_correct?: boolean;
     time?: string;
     reply?: {
         code?: string;

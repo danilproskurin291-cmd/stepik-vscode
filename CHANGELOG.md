@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.4.11] - 2026-11-08
+
+### Added
+
+- Solved quiz steps now reopen with the answer that was submitted to Stepik.
+  Choice, string, number, math, free-answer, sorting, matching, table,
+  fill-blanks, SQL, HTML, dataset, chemical, and puzzle answers are restored.
+- A solved (or still reviewed) task is read-only until the user explicitly
+  presses **Edit** or **Start over**, so an answer is never submitted again by
+  accident.
+- The task panel shows a solved or pending banner with the score and feedback,
+  and a wrong-answer banner when a previous attempt was incorrect.
+
+### Fixed
+
+- Fill-blanks tasks now prefill both text inputs and selects from the saved
+  submission, require every blank to be filled, and reject select values that
+  are not in the task dataset. Select options returned as plain strings or
+  `{ text }` objects are both supported.
+- Attempt datasets returned as a JSON string are parsed before rendering.
+- Submission polling no longer fails after a long manual review; the pending
+  answer stays visible instead of showing a submission error.
+- A delayed submission result is ignored if the user has already navigated to
+  another step.
+
 ## [0.4.10] - 2026-11-08
 
 ### Fixed

@@ -8,7 +8,7 @@
 
 Courses, theory, quizzes, code, exams, video, and discussions — all in one VS Code window.
 
-[![Version](https://img.shields.io/badge/version-0.4.10-54ad54?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.4.11-54ad54?style=flat-square)](CHANGELOG.md)
 [![VS Code](https://img.shields.io/badge/VS%20Code-1.85%2B-288b28?style=flat-square)](https://code.visualstudio.com/)
 [![License](https://img.shields.io/badge/license-GPL--3.0-264c26?style=flat-square)](LICENSE.txt)
 [![Languages](https://img.shields.io/badge/interface-English%20%7C%20Русский-54ad54?style=flat-square)](#interface-language)
@@ -19,18 +19,21 @@ Courses, theory, quizzes, code, exams, video, and discussions — all in one VS 
 
 ![Stepik task panel in VS Code](media/task.png)
 
-## What's new in 0.4.10
+## What's new in 0.4.11
 
-- **Yesterday's activity is no longer lost.** The calendar now reads Stepik's
-  daily statistics in the correct order: the API returns pins from today
-  backwards, while the extension treated them as oldest-first. Recent tasks now
-  appear on the right, where they belong.
-- **The calendar is anchored to the right and does not scroll.** Only the weeks
-  that fit the panel width are shown; when the window is resized, the calendar
-  rebuilds and stays at the right edge.
-- **Weekday labels are aligned** with their actual rows: Mon, Wed, Fri, Sun.
-- **Everything from 0.4.9 is preserved:** the high-contrast Stepik icon, the
-  `random-tasks` screen, and step-type icons.
+- **Solved tasks reopen with the submitted answer.** Choice, short answer,
+  number, formula, free-answer, sorting, matching, table, fill-blanks, SQL,
+  HTML, dataset, chemistry, and puzzle steps restore their answer from Stepik.
+- **A solved task cannot be edited by accident.** The form stays locked until
+  you press **Edit** or **Start over**; an answer that is still being reviewed
+  shows a pending state.
+- **Clear status.** The panel shows a banner with the score and feedback, and a
+  hint to fix the answer after a wrong attempt.
+- **Fill-blanks fixed.** Inputs and selects are prefilled from the saved answer,
+  every blank is required, and select values are checked against the Stepik
+  dataset.
+- **Everything from 0.4.10 is preserved:** the fixed activity calendar and
+  step-type icons.
 
 ## Features
 
@@ -83,12 +86,12 @@ Replies to comments, solution checks, and other Stepik events.
 
 ### Ready-made VSIX
 
-1. Download `stepik-vscode-fork-0.4.10.vsix` from
+1. Download `stepik-vscode-fork-0.4.11.vsix` from
    [Releases](https://github.com/danilproskurin291-cmd/stepik-vscode/releases).
 2. Install it:
 
    ```bash
-   code --install-extension stepik-vscode-fork-0.4.10.vsix
+   code --install-extension stepik-vscode-fork-0.4.11.vsix
    ```
 
    Or open **Extensions → … → Install from VSIX…** and pick the file.
@@ -104,7 +107,7 @@ Requires Node.js 18+.
 npm ci
 npm run build
 npx @vscode/vsce package
-code --install-extension stepik-vscode-fork-0.4.10.vsix
+code --install-extension stepik-vscode-fork-0.4.11.vsix
 ```
 
 ## Quick start
@@ -429,7 +432,7 @@ npx @vscode/vsce package
 ```
 
 Build output: `dist/extension.js` and `dist/audioWorker.js`.
-Installer: `stepik-vscode-fork-0.4.10.vsix`.
+Installer: `stepik-vscode-fork-0.4.11.vsix`.
 
 ## Limitations
 

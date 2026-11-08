@@ -157,6 +157,8 @@ export class StepikWebview implements vscode.Disposable {
     private preloadToken = 0;
     private readonly preloadedSteps = new Map<number, number>();
     private currentAttempt: Attempt | undefined;
+    private currentSubmission: Submission | undefined;
+    private quizEditUnlocked = false;
     private currentDatasetFile: string | undefined;
     private currentDatasetFileError: string | undefined;
     private readonly markedVideoSteps = new Set<number>();
@@ -358,6 +360,8 @@ export class StepikWebview implements vscode.Disposable {
         this.currentStep = stepContext;
         this.currentAccess = access;
         this.currentAttempt = undefined;
+        this.currentSubmission = undefined;
+        this.quizEditUnlocked = false;
         this.currentDatasetFile = undefined;
         this.currentDatasetFileError = undefined;
         void this.setVideoTheater(false);
@@ -436,6 +440,7 @@ export class StepikWebview implements vscode.Disposable {
         // but every other quiz type needs it before the form can be rendered.
         if (ATTEMPT_STEP_TYPES.has(step.block.name)) {
             await this.createAttemptForStep(step);
+            await this.loadAttemptSubmission(step);
         }
 
         this.panel.title = t('task.tabTitle', { position: step.position });
@@ -593,7 +598,99 @@ export class StepikWebview implements vscode.Disposable {
 
     private getAttemptDataset(): AttemptDataset | undefined {
         const dataset = this.currentAttempt?.dataset;
+        if (typeof dataset === 'string') {
+            const trimmed = dataset.trim();
+            if (!trimmed) {
+                return undefined;
+            }
+            try {
+                const parsed = JSON.parse(trimmed);
+                return parsed && typeof parsed === 'object'
+                    ? (parsed as AttemptDataset)
+                    : undefined;
+            } catch {
+                return undefined;
+            }
+        }
         return dataset && typeof dataset === 'object' ? dataset : undefined;
+    }
+
+    private isSubmissionSolved(submission: Submission | undefined): boolean {
+        if (!submission) {
+            return false;
+        }
+        // `is_partially_correct` is not enough to lock the task: a partial
+        // score can still leave the step unsolved. Only a full correct or
+        // settled submission is treated as solved.
+        return submission.status === 'correct' || submission.status === 'settled';
+    }
+
+    private isSubmissionPending(submission: Submission | undefined): boolean {
+        return submission?.status === 'evaluation' || submission?.status === 'pending';
+    }
+
+    /**
+     * A solved (or still reviewed) submission is read-only until the user
+     * explicitly asks to edit it or starts a fresh attempt.
+     */
+    private isQuizLocked(): boolean {
+        if (!this.currentSubmission || this.quizEditUnlocked) {
+            return false;
+        }
+        return (
+            this.isSubmissionSolved(this.currentSubmission) ||
+            this.isSubmissionPending(this.currentSubmission)
+        );
+    }
+
+    /**
+     * Restore the latest submission that belongs to the current attempt. Stepik
+     * keeps old attempts after "start over", so filtering by attempt id is
+     * important: otherwise a fresh attempt would reopen with the previous
+     * (already solved) answer and stay locked.
+     */
+    private async loadAttemptSubmission(step: Step): Promise<void> {
+        this.currentSubmission = undefined;
+        this.quizEditUnlocked = false;
+        if (!this.currentAttempt) {
+            return;
+        }
+
+        try {
+            const submissions = await this.api.getUserSubmissions(step.id);
+            const attemptId = this.currentAttempt.id;
+            let candidates = submissions.filter(
+                submission => submission.attempt === attemptId
+            );
+
+            // Very old API responses omit the attempt link. Only fall back to
+            // the whole list when Stepik keeps a single attempt for the step;
+            // a fresh attempt must not inherit an older answer.
+            if (
+                candidates.length === 0 &&
+                submissions.length > 0 &&
+                submissions.every(submission => submission.attempt === undefined)
+            ) {
+                const attempts = await this.api.getAttempts(step.id).catch(() => []);
+                if (attempts.length <= 1) {
+                    candidates = submissions;
+                }
+            }
+
+            candidates = candidates
+                .slice()
+                .sort((left, right) => right.id - left.id);
+
+            const solved = candidates.find(submission =>
+                this.isSubmissionSolved(submission)
+            );
+            this.currentSubmission = solved || candidates[0];
+        } catch (error) {
+            const detail = error instanceof Error ? error.message : String(error);
+            this.outputChannel.appendLine(
+                `[Submission] Failed to load the answer for step ${step.id}: ${detail}`
+            );
+        }
     }
 
     private async createAttemptForStep(step: Step, forceNew: boolean = false): Promise<void> {
@@ -604,6 +701,10 @@ export class StepikWebview implements vscode.Disposable {
             this.currentAttempt = forceNew
                 ? await this.api.createAttempt(step.id)
                 : await this.api.getOrCreateAttempt(step.id);
+            if (forceNew) {
+                this.currentSubmission = undefined;
+                this.quizEditUnlocked = false;
+            }
             this.currentDatasetFile = undefined;
             this.currentDatasetFileError = undefined;
 
@@ -1063,6 +1164,8 @@ export class StepikWebview implements vscode.Disposable {
         this.previousStep = undefined;
         this.nextStep = undefined;
         this.currentAttempt = undefined;
+        this.currentSubmission = undefined;
+        this.quizEditUnlocked = false;
         this.currentDatasetFile = undefined;
         this.currentDatasetFileError = undefined;
         this.currentUserId = undefined;
@@ -3219,9 +3322,15 @@ export class StepikWebview implements vscode.Disposable {
                     // The user explicitly asked for a fresh attempt and
                     // refreshed dataset/options.
                     await this.createAttemptForStep(this.currentStep.step, true);
-                    if (this.panel) {
-                        this.panel.webview.html = this.getHtmlContent(this.currentStep.step);
-                    }
+                    this.renderCurrentStep();
+                }
+                break;
+            case 'editAnswer':
+                if (this.currentStep) {
+                    // "Изменить" unlocks the already submitted answer without
+                    // discarding the attempt or its submission.
+                    this.quizEditUnlocked = true;
+                    this.renderCurrentStep();
                 }
                 break;
             case 'previousStep':
@@ -3446,11 +3555,34 @@ export class StepikWebview implements vscode.Disposable {
         }
 
         if (stepType === 'fill-blanks') {
-            const expected = (dataset?.components || []).filter(
+            const blanks = (dataset?.components || []).filter(
                 component => component.type !== 'text'
-            ).length;
-            if (!Array.isArray(reply.blanks) || reply.blanks.length !== expected) {
+            );
+            if (!Array.isArray(reply.blanks) || reply.blanks.length !== blanks.length) {
                 return t('task.fillBlanks');
+            }
+            if (
+                reply.blanks.some(
+                    value => typeof value !== 'string' || !value.trim()
+                )
+            ) {
+                return t('task.fillBlanks');
+            }
+            for (let index = 0; index < blanks.length; index++) {
+                const component = blanks[index];
+                if (component.type !== 'select') {
+                    continue;
+                }
+                const options = (component.options || []).map(option =>
+                    this.normalizeBlankOption(option)
+                );
+                const value = reply.blanks[index];
+                if (!options.includes(value)) {
+                    const trimmed = value.trim();
+                    if (!options.some(option => option.trim() === trimmed)) {
+                        return t('task.fillBlanks');
+                    }
+                }
             }
             return undefined;
         }
@@ -3490,14 +3622,35 @@ export class StepikWebview implements vscode.Disposable {
         return undefined;
     }
 
+    private renderCurrentStep(stepId?: number): void {
+        if (
+            this.panel &&
+            this.currentStep &&
+            (stepId === undefined || this.currentStep.step.id === stepId)
+        ) {
+            this.panel.webview.html = this.getHtmlContent(this.currentStep.step);
+        }
+    }
+
     private async submitQuiz(message: WebviewMessage): Promise<void> {
         if (!this.currentStep || !this.currentAttempt) {
             this.postQuizStatus('error', t('task.noActiveAttempt'));
             return;
         }
 
+        if (this.isQuizLocked()) {
+            this.postQuizStatus(
+                'error',
+                this.isSubmissionPending(this.currentSubmission)
+                    ? t('task.quizLockedPending')
+                    : t('task.quizLocked')
+            );
+            return;
+        }
+
         const stepType = this.currentStep.step.block.name;
         const stepId = this.currentStep.step.id;
+        const attemptId = this.currentAttempt.id;
         const reply = this.buildQuizReply(stepType, message);
 
         if (!reply) {
@@ -3531,21 +3684,38 @@ export class StepikWebview implements vscode.Disposable {
 
         try {
             this.postQuizStatus('info', t('task.submitting'));
-            const submission = await this.api.submitQuiz(this.currentAttempt.id, reply);
+            const submission = await this.api.submitQuiz(attemptId, reply);
             this.postQuizStatus('info', t('task.checking'));
             const result = await this.pollSubmissionResult(submission.id);
 
-            if (result.status === 'correct') {
+            // The user may have navigated to another step while the answer
+            // was being checked. Never attach the result to the wrong step.
+            const isCurrentStep = this.currentStep?.step.id === stepId;
+
+            // Some deployments omit the reply in the polled submission. Keep
+            // the answer we just sent so the reopened form is never blank.
+            if (isCurrentStep) {
+                this.currentSubmission = result.reply
+                    ? result
+                    : { ...result, reply: reply as Submission['reply'] };
+            }
+
+            if (this.isSubmissionSolved(result)) {
+                if (isCurrentStep) {
+                    this.quizEditUnlocked = false;
+                }
                 // Mark step as passed locally for instant UI update
                 this.treeProvider.markStepAsPassed(stepId);
                 this.treeProvider.refresh();
 
                 const detail = combineSubmissionFeedback(result.hint, result.feedback);
-                this.postQuizStatus(
-                    'success',
-                    t('task.correctScore', { score: result.score }) +
-                        (detail ? `\n${detail}` : '')
-                );
+                if (isCurrentStep) {
+                    this.postQuizStatus(
+                        'success',
+                        t('task.correctScore', { score: result.score }) +
+                            (detail ? `\n${detail}` : '')
+                    );
+                }
                 vscode.window.showInformationMessage(
                     t('task.correctScore', { score: result.score })
                 );
@@ -3553,12 +3723,28 @@ export class StepikWebview implements vscode.Disposable {
                 // Delay to allow API to update progress, then full refresh
                 await new Promise(resolve => setTimeout(resolve, 1000));
                 this.treeProvider.forceRefresh();
+
+                // Re-render so the submitted answer is prefilled and the form
+                // is locked until the user explicitly asks to edit it.
+                this.renderCurrentStep(stepId);
+            } else if (this.isSubmissionPending(result)) {
+                if (isCurrentStep) {
+                    this.quizEditUnlocked = false;
+                    this.postQuizStatus('info', t('task.answerPending'));
+                    this.renderCurrentStep(stepId);
+                }
             } else {
+                // Keep the form editable and preserve the user's input.
+                if (isCurrentStep) {
+                    this.quizEditUnlocked = true;
+                }
                 const detail = combineSubmissionFeedback(result.hint, result.feedback);
-                this.postQuizStatus(
-                    'error',
-                    t('task.wrongAnswer') + (detail ? `\n${detail}` : '')
-                );
+                if (isCurrentStep) {
+                    this.postQuizStatus(
+                        'error',
+                        t('task.wrongAnswer') + (detail ? `\n${detail}` : '')
+                    );
+                }
 
                 const showDetails = t('submit.showDetails');
                 vscode.window.showErrorMessage(
@@ -3600,10 +3786,12 @@ export class StepikWebview implements vscode.Disposable {
         submissionId: number,
         maxAttempts: number = 30,
         intervalMs: number = 1000
-    ): Promise<{ status: string; score: number; hint: string; feedback: string }> {
+    ): Promise<Submission> {
+        let lastSubmission: Submission | undefined;
         for (let i = 0; i < maxAttempts; i++) {
             const submission = await this.api.getSubmission(submissionId);
-            
+            lastSubmission = submission;
+
             if (submission.status !== 'evaluation') {
                 return submission;
             }
@@ -3611,6 +3799,11 @@ export class StepikWebview implements vscode.Disposable {
             await new Promise(resolve => setTimeout(resolve, intervalMs));
         }
 
+        // A long manual review must not turn into a submission error: keep
+        // the pending submission so the form can show the review banner.
+        if (lastSubmission) {
+            return lastSubmission;
+        }
         throw new Error('Submission evaluation timeout');
     }
 
@@ -3990,9 +4183,187 @@ export class StepikWebview implements vscode.Disposable {
             .trim();
     }
 
+    private getSubmissionReply(): NonNullable<Submission['reply']> | undefined {
+        return this.currentSubmission?.reply || undefined;
+    }
+
+    private getReplyString(value: unknown): string {
+        if (typeof value === 'string') {
+            return value;
+        }
+        if (typeof value === 'number') {
+            return String(value);
+        }
+        return '';
+    }
+
+    private getChoiceFlags(): boolean[] | undefined {
+        const choices = this.getSubmissionReply()?.choices;
+        if (!Array.isArray(choices) || choices.length === 0) {
+            return undefined;
+        }
+        if (typeof choices[0] !== 'boolean') {
+            return undefined;
+        }
+        return choices as boolean[];
+    }
+
+    private getSortingOrder(options: string[]): number[] {
+        const identity = options.map((_, index) => index);
+        const ordering = this.getSubmissionReply()?.ordering;
+        if (!Array.isArray(ordering) || ordering.length !== options.length) {
+            return identity;
+        }
+
+        const seen = new Set<number>();
+        const order: number[] = [];
+        for (const value of ordering) {
+            const index = Number(value);
+            if (
+                Number.isInteger(index) &&
+                index >= 0 &&
+                index < options.length &&
+                !seen.has(index)
+            ) {
+                seen.add(index);
+                order.push(index);
+            }
+        }
+        for (const index of identity) {
+            if (!seen.has(index)) {
+                order.push(index);
+            }
+        }
+        return order;
+    }
+
+    private getMatchingSelection(
+        leftIndex: number,
+        pairCount: number
+    ): number | undefined {
+        const ordering = this.getSubmissionReply()?.ordering;
+        if (!Array.isArray(ordering)) {
+            return undefined;
+        }
+        const value = Number(ordering[leftIndex]);
+        return Number.isInteger(value) && value >= 0 && value < pairCount
+            ? value
+            : undefined;
+    }
+
+    private getBlankValues(): string[] {
+        const blanks = this.getSubmissionReply()?.blanks;
+        if (!Array.isArray(blanks)) {
+            return [];
+        }
+        return blanks.map(value =>
+            typeof value === 'string' ? value : String(value ?? '')
+        );
+    }
+
+    private normalizeBlankOption(option: string | { text?: string }): string {
+        if (typeof option === 'string') {
+            return option;
+        }
+        return typeof option?.text === 'string' ? option.text : '';
+    }
+
+    /**
+     * Old Stepik clients stored select values as `option#index`. The reply
+     * itself contains only the option text, but a cached/legacy reply can
+     * still carry the suffix. Strip it only when it matches a real option.
+     */
+    private getBlankSelectValue(
+        rawValue: string,
+        options: string[]
+    ): string {
+        if (options.includes(rawValue)) {
+            return rawValue;
+        }
+        const trimmed = rawValue.trim();
+        const trimmedMatch = options.find(option => option.trim() === trimmed);
+        if (trimmedMatch !== undefined) {
+            return trimmedMatch;
+        }
+        const match = /^(.*)#(\d+)$/.exec(rawValue);
+        if (match && options.includes(match[1])) {
+            return match[1];
+        }
+        return rawValue;
+    }
+
+    private isTableChoiceSelected(
+        rowIndex: number,
+        columnIndex: number,
+        rowName: string,
+        columnName: string
+    ): boolean {
+        const choices = this.getSubmissionReply()?.choices;
+        if (!Array.isArray(choices) || choices.length === 0) {
+            return false;
+        }
+
+        if (typeof choices[0] === 'boolean') {
+            const columns = this.getAttemptDataset()?.columns?.length || 0;
+            return Boolean((choices as boolean[])[rowIndex * columns + columnIndex]);
+        }
+
+        const rows = choices as TableRowChoice[];
+        const row =
+            rows[rowIndex] ||
+            rows.find(candidate => candidate?.name_row === rowName);
+        if (!row || !Array.isArray(row.columns)) {
+            return false;
+        }
+        const column =
+            row.columns[columnIndex] ||
+            row.columns.find(candidate => candidate?.name === columnName);
+        return column?.answer === true;
+    }
+
     private getQuizStatusHtml(): string {
+        const submission = this.currentSubmission;
+        const solved = this.isSubmissionSolved(submission);
+        const locked = this.isQuizLocked();
+        const status = `<div id="quiz-status" class="quiz-status" role="status" aria-live="polite"></div>`;
+
+        if (locked) {
+            const score =
+                typeof submission?.score === 'number'
+                    ? ` <span class="quiz-lock-score">${this.escapeHtml(
+                          t('task.quizScore', { score: submission.score })
+                      )}</span>`
+                    : '';
+            const feedback = submission
+                ? combineSubmissionFeedback(submission.hint, submission.feedback)
+                : '';
+            return `
+                ${status}
+                <div class="quiz-locked-banner ${solved ? 'quiz-locked-solved' : 'quiz-locked-pending'}">
+                    <div class="quiz-locked-main">
+                        <div class="quiz-locked-title">${solved ? t('task.quizSolved') : t('task.quizPending')}</div>
+                        <div class="quiz-locked-detail">${solved ? t('task.quizSolvedDetail') : t('task.quizPendingDetail')}${score}</div>
+                        ${feedback ? `<div class="quiz-locked-feedback">${this.escapeHtml(feedback)}</div>` : ''}
+                    </div>
+                    <div class="quiz-locked-actions">
+                        <button id="edit-answer-btn" type="button">${t('task.editAnswer')}</button>
+                        <button id="restart-btn" type="button" class="secondary">${t('task.startOver')}</button>
+                    </div>
+                </div>
+            `;
+        }
+
+        const banner = submission
+            ? `<div class="quiz-banner ${this.quizEditUnlocked ? 'quiz-banner-editing' : 'quiz-banner-wrong'}">${
+                  this.quizEditUnlocked
+                      ? t('task.quizEditingBanner')
+                      : t('task.quizWrongBanner')
+              }</div>`
+            : '';
+
         return `
-            <div id="quiz-status" class="quiz-status" role="status" aria-live="polite"></div>
+            ${status}
+            ${banner}
             <div class="quiz-actions">
                 <button id="submit-quiz-btn">${t('task.submit')}</button>
                 <button id="restart-btn" class="secondary">${t('task.newAttempt')}</button>
@@ -4023,12 +4394,13 @@ export class StepikWebview implements vscode.Disposable {
             const options = dataset.options || [];
             const isMultiple = dataset.is_multiple_choice ?? false;
             const inputType = isMultiple ? 'checkbox' : 'radio';
+            const selected = this.getChoiceFlags();
             return `
                 <div class="quiz-section">
                     <div class="quiz-options">
                         ${options.map((opt, i) => `
                             <label class="quiz-option">
-                                <input type="${inputType}" name="choice" value="${i}" data-index="${i}">
+                                <input type="${inputType}" name="choice" value="${i}" data-index="${i}"${selected?.[i] ? ' checked' : ''}>
                                 <span>${this.getQuizContentHtml(opt)}</span>
                             </label>
                         `).join('')}
@@ -4040,22 +4412,27 @@ export class StepikWebview implements vscode.Disposable {
 
         if (stepType === 'string') {
             const textDisabled = dataset.is_text_disabled === true;
+            const reply = this.getSubmissionReply();
+            const text = this.getReplyString(reply?.text);
+            const fileCount = Array.isArray(reply?.files) ? reply.files.length : 0;
             return `
                 <div class="quiz-section">
                     ${textDisabled ? `<div class="quiz-warning">${t('task.textOnlyFileWarning')}</div>` : ''}
                     <div class="quiz-input">
-                        <input type="text" id="string-input" placeholder="${t('task.answerPlaceholder')}" autocomplete="off">
+                        <input type="text" id="string-input" value="${this.escapeHtml(text)}" placeholder="${t('task.answerPlaceholder')}" autocomplete="off">
                     </div>
+                    ${fileCount > 0 ? `<div class="quiz-hint">${t('task.attachmentsOnly', { count: fileCount })}</div>` : ''}
                     ${this.getQuizStatusHtml()}
                 </div>
             `;
         }
 
         if (stepType === 'number') {
+            const number = this.getReplyString(this.getSubmissionReply()?.number);
             return `
                 <div class="quiz-section">
                     <div class="quiz-input">
-                        <input type="number" id="number-input" placeholder="${t('task.numberPlaceholder')}" step="any">
+                        <input type="number" id="number-input" value="${this.escapeHtml(number)}" placeholder="${t('task.numberPlaceholder')}" step="any">
                     </div>
                     ${this.getQuizStatusHtml()}
                 </div>
@@ -4063,10 +4440,11 @@ export class StepikWebview implements vscode.Disposable {
         }
 
         if (stepType === 'math') {
+            const formula = this.getReplyString(this.getSubmissionReply()?.formula);
             return `
                 <div class="quiz-section">
                     <label class="quiz-label" for="math-input">${t('task.formulaLabel')}</label>
-                    <textarea id="math-input" class="quiz-textarea formula-input" rows="2" spellcheck="false" placeholder="${t('task.formulaPlaceholder')}"></textarea>
+                    <textarea id="math-input" class="quiz-textarea formula-input" rows="2" spellcheck="false" placeholder="${t('task.formulaPlaceholder')}">${this.escapeHtml(formula)}</textarea>
                     <div class="quiz-hint">${t('task.formulaHint')}</div>
                     ${this.getQuizStatusHtml()}
                 </div>
@@ -4074,11 +4452,17 @@ export class StepikWebview implements vscode.Disposable {
         }
 
         if (stepType === 'free-answer') {
+            const reply = this.getSubmissionReply();
+            const text = this.getReplyString(reply?.text);
+            const attachments = Array.isArray(reply?.attachments)
+                ? reply.attachments.length
+                : 0;
             return `
                 <div class="quiz-section">
                     <label class="quiz-label" for="free-answer-input">${t('task.freeAnswerLabel')}</label>
-                    <textarea id="free-answer-input" class="quiz-textarea" rows="7" placeholder="${t('task.freeAnswerPlaceholder')}"></textarea>
+                    <textarea id="free-answer-input" class="quiz-textarea" rows="7" placeholder="${t('task.freeAnswerPlaceholder')}">${this.escapeHtml(text)}</textarea>
                     <div class="quiz-hint">${dataset.is_html_enabled ? t('task.freeAnswerHintHtml') : t('task.freeAnswerHint')}</div>
+                    ${attachments > 0 ? `<div class="quiz-hint">${t('task.attachmentsOnly', { count: attachments })}</div>` : ''}
                     ${this.getQuizStatusHtml()}
                 </div>
             `;
@@ -4086,14 +4470,15 @@ export class StepikWebview implements vscode.Disposable {
 
         if (stepType === 'sorting') {
             const options = dataset.options || [];
+            const order = this.getSortingOrder(options);
             return `
                 <div class="quiz-section">
                     <div class="quiz-hint">${t('task.sortingHint')}</div>
                     <ul class="sorting-list" id="sorting-list">
-                        ${options.map((option, index) => `
+                        ${order.map((index) => `
                             <li class="sorting-item" draggable="true" data-index="${index}">
                                 <span class="sorting-handle" aria-hidden="true">⠿</span>
-                                <span class="sorting-text">${this.getQuizContentHtml(option)}</span>
+                                <span class="sorting-text">${this.getQuizContentHtml(options[index])}</span>
                                 <span class="sorting-controls">
                                     <button type="button" class="icon-btn" data-move="up" title="${t('task.moveUp')}" aria-label="${t('task.moveUp')}">↑</button>
                                     <button type="button" class="icon-btn" data-move="down" title="${t('task.moveDown')}" aria-label="${t('task.moveDown')}">↓</button>
@@ -4112,16 +4497,19 @@ export class StepikWebview implements vscode.Disposable {
                 <div class="quiz-section">
                     <div class="quiz-hint">${t('task.matchingHint')}</div>
                     <div class="matching-list">
-                        ${pairs.map((pair, index) => `
+                        ${pairs.map((pair, index) => {
+                            const selectedIndex = this.getMatchingSelection(index, pairs.length);
+                            return `
                             <div class="matching-row">
                                 <div class="matching-left">${this.getQuizContentHtml(pair.first)}</div>
                                 <select class="matching-select" data-left-index="${index}" aria-label="${this.escapeHtml(t('task.matchingAria', { item: this.htmlToText(pair.first) }))}">
                                     ${pairs.map((candidate, candidateIndex) => `
-                                        <option value="${candidateIndex}" ${candidateIndex === index ? 'selected' : ''}>${this.escapeHtml(this.htmlToText(candidate.second) || '—')}</option>
+                                        <option value="${candidateIndex}" ${candidateIndex === (selectedIndex ?? index) ? 'selected' : ''}>${this.escapeHtml(this.htmlToText(candidate.second) || '—')}</option>
                                     `).join('')}
                                 </select>
                             </div>
-                        `).join('')}
+                        `;
+                        }).join('')}
                     </div>
                     ${this.getQuizStatusHtml()}
                 </div>
@@ -4153,6 +4541,7 @@ export class StepikWebview implements vscode.Disposable {
                                                     ${isCheckbox ? '' : `name="table-row-${rowIndex}"`}
                                                     data-row-index="${rowIndex}"
                                                     data-column-index="${columnIndex}"
+                                                    ${this.isTableChoiceSelected(rowIndex, columnIndex, row, column) ? 'checked' : ''}
                                                     aria-label="${this.escapeHtml(this.htmlToText(row))} — ${this.escapeHtml(this.htmlToText(column))}">
                                             </td>
                                         `).join('')}
@@ -4168,6 +4557,7 @@ export class StepikWebview implements vscode.Disposable {
 
         if (stepType === 'fill-blanks') {
             const components = dataset.components || [];
+            const blankValues = this.getBlankValues();
             let blankIndex = 0;
             const parts = components.map(component => {
                 if (component.type === 'text') {
@@ -4176,14 +4566,17 @@ export class StepikWebview implements vscode.Disposable {
 
                 const currentIndex = blankIndex++;
                 if (component.type === 'select') {
-                    const options = component.options || [];
+                    const options = (component.options || [])
+                        .map(option => this.normalizeBlankOption(option));
+                    const rawValue = blankValues[currentIndex] ?? '';
+                    const selectedValue = this.getBlankSelectValue(rawValue, options);
                     return `<select class="blank-select" data-blank-index="${currentIndex}" aria-label="${t('task.blankAria', { number: currentIndex + 1 })}">
                         <option value="">${t('task.blankChoose')}</option>
-                        ${options.map(option => `<option value="${this.escapeHtml(option)}">${this.escapeHtml(this.htmlToText(option))}</option>`).join('')}
+                        ${options.map(option => `<option value="${this.escapeHtml(option)}"${option === selectedValue ? ' selected' : ''}>${this.escapeHtml(this.htmlToText(option))}</option>`).join('')}
                     </select>`;
                 }
 
-                return `<input type="text" class="blank-input" data-blank-index="${currentIndex}" autocomplete="off" aria-label="${t('task.blankAria', { number: currentIndex + 1 })}">`;
+                return `<input type="text" class="blank-input" data-blank-index="${currentIndex}" value="${this.escapeHtml(blankValues[currentIndex] ?? '')}" autocomplete="off" aria-label="${t('task.blankAria', { number: currentIndex + 1 })}">`;
             });
             return `
                 <div class="quiz-section">
@@ -4194,10 +4587,11 @@ export class StepikWebview implements vscode.Disposable {
         }
 
         if (stepType === 'sql') {
+            const sql = this.getReplyString(this.getSubmissionReply()?.solve_sql);
             return `
                 <div class="quiz-section">
                     <label class="quiz-label" for="sql-input">${t('task.sqlLabel')}</label>
-                    <textarea id="sql-input" class="quiz-textarea code-input" rows="8" spellcheck="false" placeholder="SELECT ..."></textarea>
+                    <textarea id="sql-input" class="quiz-textarea code-input" rows="8" spellcheck="false" placeholder="SELECT ...">${this.escapeHtml(sql)}</textarea>
                     ${this.getQuizStatusHtml()}
                 </div>
             `;
@@ -4207,13 +4601,16 @@ export class StepikWebview implements vscode.Disposable {
             const htmlTemplate = step.block.options?.html_template || '';
             const cssTemplate = step.block.options?.css_template || '';
             const checklist = step.block.options?.checklist || [];
+            const reply = this.getSubmissionReply();
+            const htmlCode = typeof reply?.html === 'string' ? reply.html : htmlTemplate;
+            const cssCode = typeof reply?.css === 'string' ? reply.css : cssTemplate;
             return `
                 <div class="quiz-section">
                     <div class="html-editors">
                         <label class="quiz-label" for="html-input">HTML</label>
-                        <textarea id="html-input" class="quiz-textarea code-input" rows="14" spellcheck="false">${this.escapeHtml(htmlTemplate)}</textarea>
+                        <textarea id="html-input" class="quiz-textarea code-input" rows="14" spellcheck="false">${this.escapeHtml(htmlCode)}</textarea>
                         <label class="quiz-label" for="css-input">CSS</label>
-                        <textarea id="css-input" class="quiz-textarea code-input" rows="8" spellcheck="false">${this.escapeHtml(cssTemplate)}</textarea>
+                        <textarea id="css-input" class="quiz-textarea code-input" rows="8" spellcheck="false">${this.escapeHtml(cssCode)}</textarea>
                     </div>
                     ${checklist.length > 0 ? `
                         <div class="html-checklist">
@@ -4227,6 +4624,7 @@ export class StepikWebview implements vscode.Disposable {
         }
 
         if (stepType === 'dataset') {
+            const file = this.getReplyString(this.getSubmissionReply()?.file);
             let fileHtml: string;
             if (this.currentDatasetFile !== undefined) {
                 fileHtml = `<pre class="dataset-file">${this.escapeHtml(this.currentDatasetFile)}</pre>`;
@@ -4241,7 +4639,7 @@ export class StepikWebview implements vscode.Disposable {
                     <div class="dataset-header">${t('task.datasetHeader')}</div>
                     ${fileHtml}
                     <label class="quiz-label" for="dataset-input">${t('task.datasetSolutionLabel')}</label>
-                    <textarea id="dataset-input" class="quiz-textarea code-input" rows="12" spellcheck="false" placeholder="${t('task.datasetPlaceholder')}"></textarea>
+                    <textarea id="dataset-input" class="quiz-textarea code-input" rows="12" spellcheck="false" placeholder="${t('task.datasetPlaceholder')}">${this.escapeHtml(file)}</textarea>
                     <div class="quiz-hint">${t('task.datasetHint')}</div>
                     ${this.getQuizStatusHtml()}
                 </div>
@@ -4250,23 +4648,30 @@ export class StepikWebview implements vscode.Disposable {
 
         if (stepType === 'chemical') {
             const template = dataset.template || [];
+            const slots = this.getSubmissionReply()?.slots || [];
             return `
                 <div class="quiz-section">
                     <div class="quiz-hint">${t('task.chemicalHint')}</div>
                     <div class="chemical-slots">
-                        ${template.map((slotType, index) => `
+                        ${template.map((slotType, index) => {
+                            const slot = slots[index];
+                            const normal = typeof slot?.normal === 'string' ? slot.normal : '';
+                            const sub = typeof slot?.sub === 'string' ? slot.sub : '';
+                            const sup = typeof slot?.sup === 'string' ? slot.sup : '';
+                            return `
                             <div class="chemical-slot" data-slot-index="${index}" data-slot-type="${this.escapeHtml(slotType)}">
                                 ${slotType === 'normal' || slotType === 'subsup' ? `
-                                    <label>${t('task.partNormal')}<input type="text" data-slot-part="normal" autocomplete="off"></label>
+                                    <label>${t('task.partNormal')}<input type="text" data-slot-part="normal" value="${this.escapeHtml(normal)}" autocomplete="off"></label>
                                 ` : ''}
                                 ${slotType === 'sub' || slotType === 'subsup' ? `
-                                    <label>${t('task.partSub')}<input type="text" data-slot-part="sub" autocomplete="off"></label>
+                                    <label>${t('task.partSub')}<input type="text" data-slot-part="sub" value="${this.escapeHtml(sub)}" autocomplete="off"></label>
                                 ` : ''}
                                 ${slotType === 'sup' || slotType === 'subsup' ? `
-                                    <label>${t('task.partSup')}<input type="text" data-slot-part="sup" autocomplete="off"></label>
+                                    <label>${t('task.partSup')}<input type="text" data-slot-part="sup" value="${this.escapeHtml(sup)}" autocomplete="off"></label>
                                 ` : ''}
                             </div>
-                        `).join('')}
+                        `;
+                        }).join('')}
                     </div>
                     ${this.getQuizStatusHtml()}
                 </div>
@@ -4274,11 +4679,12 @@ export class StepikWebview implements vscode.Disposable {
         }
 
         if (stepType === 'puzzle') {
+            const solved = this.getSubmissionReply()?.solved === true;
             return `
                 <div class="quiz-section">
                     ${dataset.image_src ? `<img class="puzzle-image" src="${this.escapeHtml(String(dataset.image_src))}" alt="${t('task.puzzleAlt')}">` : ''}
                     <label class="quiz-option">
-                        <input type="checkbox" id="puzzle-solved">
+                        <input type="checkbox" id="puzzle-solved"${solved ? ' checked' : ''}>
                         <span>${t('task.puzzleSolved')}</span>
                     </label>
                     ${this.getQuizStatusHtml()}
@@ -6272,6 +6678,75 @@ export class StepikWebview implements vscode.Disposable {
         .quiz-status-error {
             color: var(--vscode-errorForeground);
         }
+        .quiz-locked-banner {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin: 12px 0;
+            padding: 12px 14px;
+            border: 1px solid var(--vscode-panel-border);
+            border-left: 4px solid var(--vscode-testing-iconPassed, var(--vscode-charts-green));
+            border-radius: 6px;
+            background: var(--vscode-input-background);
+        }
+        .quiz-locked-banner.quiz-locked-pending {
+            border-left-color: var(--vscode-editorWarning-foreground, var(--vscode-charts-yellow));
+        }
+        .quiz-locked-main {
+            min-width: 200px;
+            flex: 1 1 260px;
+        }
+        .quiz-locked-title {
+            font-weight: 600;
+            font-size: 14px;
+        }
+        .quiz-locked-detail {
+            margin-top: 3px;
+            font-size: 12px;
+            opacity: 0.85;
+        }
+        .quiz-locked-feedback {
+            margin-top: 6px;
+            font-size: 12px;
+            white-space: pre-wrap;
+            opacity: 0.95;
+        }
+        .quiz-lock-score {
+            margin-left: 4px;
+            font-weight: 600;
+        }
+        .quiz-locked-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .quiz-banner {
+            margin: 12px 0;
+            padding: 8px 12px;
+            border: 1px solid var(--vscode-panel-border);
+            border-left: 4px solid var(--vscode-focusBorder);
+            border-radius: 4px;
+            font-size: 12px;
+            line-height: 1.45;
+        }
+        .quiz-banner-wrong {
+            border-left-color: var(--vscode-testing-iconFailed, var(--vscode-errorForeground));
+        }
+        .quiz-banner-editing {
+            border-left-color: var(--vscode-focusBorder);
+        }
+        .quiz-section input:disabled,
+        .quiz-section select:disabled,
+        .quiz-section textarea:disabled,
+        .quiz-section button:disabled {
+            opacity: 0.8;
+            cursor: not-allowed;
+        }
+        .sorting-item[draggable="false"] {
+            cursor: default;
+        }
         .quiz-warning,
         .quiz-error {
             padding: 10px 12px;
@@ -7966,11 +8441,29 @@ ${stepikThemeCss}
             const quizStatusEl = document.getElementById('quiz-status');
             const quizSubmitBtn = document.getElementById('submit-quiz-btn');
             const quizRestartBtn = document.getElementById('restart-btn');
+            const quizEditBtn = document.getElementById('edit-answer-btn');
+            const quizLocked = ${this.isQuizLocked() ? 'true' : 'false'};
 
             function setQuizStatus(kind, text) {
                 if (!quizStatusEl) return;
                 quizStatusEl.className = 'quiz-status' + (kind ? ' quiz-status-' + kind : '');
                 quizStatusEl.textContent = text || '';
+            }
+
+            if (quizLocked) {
+                document
+                    .querySelectorAll('.quiz-section input, .quiz-section select, .quiz-section textarea')
+                    .forEach((control) => { control.disabled = true; });
+                document
+                    .querySelectorAll('.quiz-section button')
+                    .forEach((button) => {
+                        if (button.id !== 'edit-answer-btn' && button.id !== 'restart-btn') {
+                            button.disabled = true;
+                        }
+                    });
+                document
+                    .querySelectorAll('.sorting-item')
+                    .forEach((item) => { item.draggable = false; });
             }
 
             window.addEventListener('message', (event) => {
@@ -7979,6 +8472,13 @@ ${stepikThemeCss}
                     setQuizStatus(data.kind, data.text);
                 }
             });
+
+            if (quizEditBtn) {
+                quizEditBtn.addEventListener('click', () => {
+                    setQuizStatus('info', t('task.editingAnswerStatus'));
+                    vscode.postMessage({ command: 'editAnswer' });
+                });
+            }
 
             if (quizRestartBtn) {
                 quizRestartBtn.addEventListener('click', () => {

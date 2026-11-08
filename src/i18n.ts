@@ -395,6 +395,25 @@ const ru: Dictionary = {
     'task.createAttemptFailed':
         'Не удалось создать попытку для этого задания. Проверьте подключение и попробуйте ещё раз.',
     'task.newAttemptStatus': 'Создание новой попытки…',
+    'task.editingAnswerStatus': 'Открываем ответ для редактирования…',
+    'task.quizSolved': '✅ Задача решена',
+    'task.quizPending': '⏳ Ответ отправлен на проверку',
+    'task.quizSolvedDetail':
+        'Ваш ответ сохранён и показан ниже. Чтобы изменить его, нажмите «Изменить».',
+    'task.quizPendingDetail':
+        'Дождитесь результата проверки или начните задачу заново.',
+    'task.quizScore': 'Баллы: {score}',
+    'task.editAnswer': 'Изменить',
+    'task.startOver': 'Начать сначала',
+    'task.quizLocked':
+        'Задача уже решена. Нажмите «Изменить» или «Начать сначала», чтобы отправить новый ответ.',
+    'task.quizLockedPending':
+        'Ответ уже отправлен на проверку. Нажмите «Изменить» или «Начать сначала», чтобы отправить новый ответ.',
+    'task.quizEditingBanner':
+        'Режим редактирования: измените ответ и нажмите «Отправить».',
+    'task.quizWrongBanner':
+        'Предыдущий ответ был неверным. Исправьте его и отправьте снова.',
+    'task.answerPending': '⏳ Ответ отправлен на проверку.',
     'task.textOnlyFileWarning':
         'В этом задании Stepik принимает ответ только файлом. Текстовый ответ может быть отклонён.',
     'task.answerPlaceholder': 'Введите ответ…',
@@ -1137,6 +1156,25 @@ const en: Dictionary = {
     'task.createAttemptFailed':
         'Could not create an attempt for this task. Check the connection and try again.',
     'task.newAttemptStatus': 'Creating a new attempt…',
+    'task.editingAnswerStatus': 'Opening the answer for editing…',
+    'task.quizSolved': '✅ Task solved',
+    'task.quizPending': '⏳ Answer submitted for review',
+    'task.quizSolvedDetail':
+        'Your answer is saved and shown below. Press “Edit” to change it.',
+    'task.quizPendingDetail':
+        'Wait for the review result or start the task over.',
+    'task.quizScore': 'Score: {score}',
+    'task.editAnswer': 'Edit',
+    'task.startOver': 'Start over',
+    'task.quizLocked':
+        'The task is already solved. Press “Edit” or “Start over” to submit a new answer.',
+    'task.quizLockedPending':
+        'The answer is already under review. Press “Edit” or “Start over” to submit a new answer.',
+    'task.quizEditingBanner':
+        'Editing mode: change the answer and press “Submit”.',
+    'task.quizWrongBanner':
+        'The previous answer was incorrect. Fix it and submit again.',
+    'task.answerPending': '⏳ Answer submitted for review.',
     'task.textOnlyFileWarning':
         'Stepik accepts only a file for this task. A text answer may be rejected.',
     'task.answerPlaceholder': 'Enter an answer…',
