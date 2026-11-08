@@ -8,7 +8,7 @@
 
 Courses, theory, quizzes, code, exams, video, and discussions — all in one VS Code window.
 
-[![Version](https://img.shields.io/badge/version-0.4.9-54ad54?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.4.10-54ad54?style=flat-square)](CHANGELOG.md)
 [![VS Code](https://img.shields.io/badge/VS%20Code-1.85%2B-288b28?style=flat-square)](https://code.visualstudio.com/)
 [![License](https://img.shields.io/badge/license-GPL--3.0-264c26?style=flat-square)](LICENSE.txt)
 [![Languages](https://img.shields.io/badge/interface-English%20%7C%20Русский-54ad54?style=flat-square)](#interface-language)
@@ -19,20 +19,18 @@ Courses, theory, quizzes, code, exams, video, and discussions — all in one VS 
 
 ![Stepik task panel in VS Code](media/task.png)
 
-## What's new in 0.4.9
+## What's new in 0.4.10
 
-- **High-contrast Stepik icon.** Every panel tab now uses a green Stepik badge,
-  so the icon no longer looks black on dark themes. The activity bar shows a
-  filled S mark, and the task panel has its own tab icon.
-- **A clear screen for random tasks.** `random-tasks` steps no longer open
-  empty: the panel explains that Stepik generates the task on its side and
-  links to the step on the website.
-- **Step-type icons.** Math, sorting, matching, table, fill-blanks, SQL, HTML,
-  dataset, free-answer, and random-task steps now have dedicated icons in the
-  course tree.
-- **Dark theme and switchable language** from 0.4.7 are preserved: panels look
-  correct in light, dark, and high-contrast themes, and the interface switches
-  between Russian and English.
+- **Yesterday's activity is no longer lost.** The calendar now reads Stepik's
+  daily statistics in the correct order: the API returns pins from today
+  backwards, while the extension treated them as oldest-first. Recent tasks now
+  appear on the right, where they belong.
+- **The calendar is anchored to the right and does not scroll.** Only the weeks
+  that fit the panel width are shown; when the window is resized, the calendar
+  rebuilds and stays at the right edge.
+- **Weekday labels are aligned** with their actual rows: Mon, Wed, Fri, Sun.
+- **Everything from 0.4.9 is preserved:** the high-contrast Stepik icon, the
+  `random-tasks` screen, and step-type icons.
 
 ## Features
 
@@ -85,12 +83,12 @@ Replies to comments, solution checks, and other Stepik events.
 
 ### Ready-made VSIX
 
-1. Download `stepik-vscode-fork-0.4.9.vsix` from
+1. Download `stepik-vscode-fork-0.4.10.vsix` from
    [Releases](https://github.com/danilproskurin291-cmd/stepik-vscode/releases).
 2. Install it:
 
    ```bash
-   code --install-extension stepik-vscode-fork-0.4.9.vsix
+   code --install-extension stepik-vscode-fork-0.4.10.vsix
    ```
 
    Or open **Extensions → … → Install from VSIX…** and pick the file.
@@ -106,7 +104,7 @@ Requires Node.js 18+.
 npm ci
 npm run build
 npx @vscode/vsce package
-code --install-extension stepik-vscode-fork-0.4.9.vsix
+code --install-extension stepik-vscode-fork-0.4.10.vsix
 ```
 
 ## Quick start
@@ -431,7 +429,7 @@ npx @vscode/vsce package
 ```
 
 Build output: `dist/extension.js` and `dist/audioWorker.js`.
-Installer: `stepik-vscode-fork-0.4.9.vsix`.
+Installer: `stepik-vscode-fork-0.4.10.vsix`.
 
 ## Limitations
 
