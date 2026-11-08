@@ -2620,8 +2620,9 @@ export class StepikWebview implements vscode.Disposable {
         const stepId = this.currentStep.step.id;
         if (!forceReload) {
             // The user may have submitted a new solution after the panel was
-            // opened. Refresh the selector before the solutions tab is shown.
-            await this.loadSolutionSubmissions(stepId, true);
+            // opened. Refresh the selector in parallel: the solutions list and
+            // the comment editor must not wait for the submissions request.
+            void this.loadSolutionSubmissions(stepId, true);
         }
         const token = ++this.solutionsLoadToken;
         this.solutionsLoading = true;
@@ -3980,6 +3981,11 @@ export class StepikWebview implements vscode.Disposable {
 
                 const detail = this.getSubmissionFeedbackText(result, stepType);
                 if (isCurrentStep) {
+                    // Re-render immediately so the solved banner appears
+                    // without waiting for Stepik to update progress. The
+                    // submitted answer is prefilled and the form is locked
+                    // until the user explicitly asks to edit it.
+                    this.renderCurrentStep(stepId);
                     this.postQuizStatus(
                         'success',
                         t('task.correctScore', { score: result.score }) +
@@ -3990,13 +3996,9 @@ export class StepikWebview implements vscode.Disposable {
                     t('task.correctScore', { score: result.score })
                 );
 
-                // Delay to allow API to update progress, then full refresh
-                await new Promise(resolve => setTimeout(resolve, 1000));
-                this.treeProvider.forceRefresh();
-
-                // Re-render so the submitted answer is prefilled and the form
-                // is locked until the user explicitly asks to edit it.
-                this.renderCurrentStep(stepId);
+                // Stepik needs a moment to update progress. Refresh the tree
+                // in the background so the panel is never blocked by it.
+                setTimeout(() => this.treeProvider.forceRefresh(), 1000);
             } else if (this.isSubmissionPending(result)) {
                 if (isCurrentStep) {
                     this.quizEditUnlocked = false;
@@ -9996,9 +9998,11 @@ ${stepikThemeCss}
                         solutionSubmissionSelect.disabled =
                             !enabled || !hasSolutionSubmission();
                     }
-                    const canWrite = Boolean(enabled && hasSolutionSubmission());
+                    // The editor is available as soon as the solutions forum
+                    // is unlocked. Only the submission selector and the
+                    // submit button need the submissions response.
                     if (solutionEditor) {
-                        solutionEditor.setDisabled(!canWrite);
+                        solutionEditor.setDisabled(!solutionComposerEnabled);
                     }
                     updateSolutionPostButton();
                 }
@@ -10056,7 +10060,7 @@ ${stepikThemeCss}
                     }
                     if (showComments) {
                         setSolutionComposerEnabled(false);
-                    } else if (solutionsLoaded && solutionsAvailable) {
+                    } else if (solutionsAvailable) {
                         setSolutionComposerEnabled(true);
                     }
 
@@ -11209,7 +11213,7 @@ ${stepikThemeCss}
                             solutionSubmissionHint.textContent = message.hint || '';
                             solutionSubmissionHint.style.display = message.hint ? '' : 'none';
                         }
-                        setSolutionComposerEnabled(solutionsLoaded && solutionsAvailable);
+                        setSolutionComposerEnabled(solutionsAvailable);
                     } else if (message.command === 'solutionsAvailability') {
                         solutionsAvailable = Boolean(message.available);
                         if (solutionsCountEl) {
@@ -11240,8 +11244,13 @@ ${stepikThemeCss}
                             if (currentView === 'solutions') {
                                 setSolutionsStatus('');
                             }
-                        } else if (currentView === 'solutions') {
-                            ensureSolutionsLoaded();
+                        } else {
+                            // The forum is unlocked: the editor can be used
+                            // while the solutions list is still loading.
+                            setSolutionComposerEnabled(true);
+                            if (currentView === 'solutions') {
+                                ensureSolutionsLoaded();
+                            }
                         }
                     } else if (message.command === 'solutionsLoaded') {
                         solutionsLoading = false;
@@ -11276,7 +11285,9 @@ ${stepikThemeCss}
                     } else if (message.command === 'solutionsError') {
                         solutionsLoading = false;
                         solutionsLoaded = false;
-                        setSolutionComposerEnabled(false);
+                        // A failed list request must not lock the editor: the
+                        // forum itself may still accept a new solution.
+                        setSolutionComposerEnabled(solutionsAvailable);
                         if (retrySolutionsBtn) {
                             retrySolutionsBtn.style.display = '';
                         }

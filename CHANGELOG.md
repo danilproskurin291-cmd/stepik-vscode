@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.4.15] - 2026-11-08
+
+### Changed
+
+- The solved banner (“✅ Задача решена”) now appears immediately after a
+  correct quiz submission. The progress/tree refresh runs in the background
+  instead of blocking the panel for a second.
+- The formula preview in the comment editor updates on every keystroke without
+  the artificial 250 ms debounce. The previous result stays visible while the
+  new one is rendered.
+- The solution comment editor is enabled as soon as the solutions forum is
+  available. It no longer waits for the solutions list or the submissions
+  request; only the submission selector and the submit button wait for the
+  submissions.
+- Solution submissions are loaded in parallel with the solutions list.
+
 ## [0.4.14] - 2026-11-08
 
 ### Fixed

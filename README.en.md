@@ -8,7 +8,7 @@
 
 Courses, theory, quizzes, code, exams, video, and discussions — all in one VS Code window.
 
-[![Version](https://img.shields.io/badge/version-0.4.14-54ad54?style=flat-square)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-0.4.15-54ad54?style=flat-square)](CHANGELOG.md)
 [![VS Code](https://img.shields.io/badge/VS%20Code-1.85%2B-288b28?style=flat-square)](https://code.visualstudio.com/)
 [![License](https://img.shields.io/badge/license-GPL--3.0-264c26?style=flat-square)](LICENSE.txt)
 [![Languages](https://img.shields.io/badge/interface-English%20%7C%20Русский-54ad54?style=flat-square)](#interface-language)
@@ -19,16 +19,20 @@ Courses, theory, quizzes, code, exams, video, and discussions — all in one VS 
 
 ![Stepik task panel in VS Code](media/task.png)
 
-## What's new in 0.4.14
+## What's new in 0.4.15
 
-- **Fill-blanks tasks no longer report a submission error.** Stepik returns
-  their `feedback` as `{ blanks_feedback: [...] }`, and the extension tried to
-  treat it as a string. The answer was actually submitted, but the panel showed
-  `(e || "").trim is not a function` instead of the result.
-- **Clearer blank checking.** A wrong answer now lists which blanks are correct
-  and which are not.
-- **Everything from 0.4.13 is preserved:** KaTeX formulas, bundled fonts, and
-  readable dropdown options.
+- **The solved banner appears instantly.** After a correct answer the
+  “✅ Task solved” banner is shown right away, while progress and the course
+  tree refresh in the background.
+- **Formula preview without the delay.** In the comment editor a formula is
+  re-rendered on every keystroke without the artificial 250 ms pause. The
+  previous result stays visible while the new one is being rendered.
+- **The solution editor is available immediately.** As soon as the solutions
+  forum is unlocked you can start writing. The solutions list and the
+  submissions for the selector load in parallel and no longer block the
+  editor.
+- **Everything from 0.4.14 is preserved:** the fill-blanks fix and KaTeX
+  formulas.
 
 ## Features
 
@@ -81,12 +85,12 @@ Replies to comments, solution checks, and other Stepik events.
 
 ### Ready-made VSIX
 
-1. Download `stepik-vscode-fork-0.4.14.vsix` from
+1. Download `stepik-vscode-fork-0.4.15.vsix` from
    [Releases](https://github.com/danilproskurin291-cmd/stepik-vscode/releases).
 2. Install it:
 
    ```bash
-   code --install-extension stepik-vscode-fork-0.4.14.vsix
+   code --install-extension stepik-vscode-fork-0.4.15.vsix
    ```
 
    Or open **Extensions → … → Install from VSIX…** and pick the file.
@@ -102,7 +106,7 @@ Requires Node.js 18+.
 npm ci
 npm run build
 npx @vscode/vsce package
-code --install-extension stepik-vscode-fork-0.4.14.vsix
+code --install-extension stepik-vscode-fork-0.4.15.vsix
 ```
 
 ## Quick start
@@ -429,7 +433,7 @@ npx @vscode/vsce package
 ```
 
 Build output: `dist/extension.js` and `dist/audioWorker.js`.
-Installer: `stepik-vscode-fork-0.4.14.vsix`.
+Installer: `stepik-vscode-fork-0.4.15.vsix`.
 
 ## Limitations
 

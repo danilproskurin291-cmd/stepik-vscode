@@ -8,7 +8,7 @@
 
 Курсы, теория, тесты, код, экзамены, видео и обсуждения — в одном окне VS Code.
 
-[![Версия](https://img.shields.io/badge/version-0.4.14-54ad54?style=flat-square)](CHANGELOG.md)
+[![Версия](https://img.shields.io/badge/version-0.4.15-54ad54?style=flat-square)](CHANGELOG.md)
 [![VS Code](https://img.shields.io/badge/VS%20Code-1.85%2B-288b28?style=flat-square)](https://code.visualstudio.com/)
 [![Лицензия](https://img.shields.io/badge/license-GPL--3.0-264c26?style=flat-square)](LICENSE.txt)
 [![Языки](https://img.shields.io/badge/interface-Русский%20%7C%20English-54ad54?style=flat-square)](#язык-интерфейса)
@@ -19,16 +19,18 @@
 
 ![Панель задачи Stepik в VS Code](media/task.png)
 
-## Что нового в 0.4.14
+## Что нового в 0.4.15
 
-- **Пропуски больше не выдают ошибку отправки.** Stepik возвращает для них
-  `feedback` объектом `{ blanks_feedback: [...] }`, а расширение пыталось
-  обработать его как строку. Ответ на самом деле отправлялся, но вместо
-  результата появлялась ошибка `(e || "").trim is not a function`.
-- **Понятная проверка пропусков.** При неверном ответе показывается, какие
-  пропуски заполнены верно, а какие — нет.
-- **Всё из 0.4.13 сохранено:** формулы KaTeX, встроенные шрифты и читаемые
-  варианты в выпадающих списках.
+- **«Решено» появляется моментально.** После верного ответа баннер
+  «✅ Задача решена» показывается сразу, а обновление прогресса и дерева
+  курса идёт в фоне.
+- **Предпросмотр формул без задержки.** В редакторе комментария формула
+  перерисовывается на каждое нажатие клавиши, без искусственной паузы
+  250 мс; предыдущий результат остаётся видимым, пока готовится новый.
+- **Редактор решения доступен сразу.** Как только форум решений открыт,
+  можно писать комментарий. Список решений и данные для выбора ответа
+  загружаются параллельно и больше не блокируют редактор.
+- **Всё из 0.4.14 сохранено:** исправление пропусков и формулы KaTeX.
 
 ## Возможности
 
@@ -81,12 +83,12 @@
 
 ### Готовый VSIX
 
-1. Скачайте `stepik-vscode-fork-0.4.14.vsix` из
+1. Скачайте `stepik-vscode-fork-0.4.15.vsix` из
    [Releases](https://github.com/danilproskurin291-cmd/stepik-vscode/releases).
 2. Установите файл:
 
    ```bash
-   code --install-extension stepik-vscode-fork-0.4.14.vsix
+   code --install-extension stepik-vscode-fork-0.4.15.vsix
    ```
 
    Или откройте **Extensions → … → Install from VSIX…** и выберите файл.
@@ -102,7 +104,7 @@
 npm ci
 npm run build
 npx @vscode/vsce package
-code --install-extension stepik-vscode-fork-0.4.14.vsix
+code --install-extension stepik-vscode-fork-0.4.15.vsix
 ```
 
 ## Быстрый старт
@@ -427,7 +429,7 @@ npx @vscode/vsce package
 ```
 
 Готовая сборка: `dist/extension.js` и `dist/audioWorker.js`.
-Установочный пакет: `stepik-vscode-fork-0.4.14.vsix`.
+Установочный пакет: `stepik-vscode-fork-0.4.15.vsix`.
 
 ## Ограничения
 

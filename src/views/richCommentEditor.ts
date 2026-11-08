@@ -438,7 +438,6 @@ export function getRichCommentEditorScript(): string {
             var mathInput = dialog.body.querySelector('.rich-dialog-math');
             var displayInput = dialog.body.querySelector('.rich-dialog-display');
             var preview = dialog.body.querySelector('.rich-dialog-preview');
-            var previewTimer = null;
             var previewRequest = 0;
 
             function updatePreview() {
@@ -448,7 +447,12 @@ export function getRichCommentEditorScript(): string {
                     preview.innerHTML = '';
                     return;
                 }
-                preview.textContent = t('editor.previewing');
+                // Keep the last rendered formula visible while the new one is
+                // being rendered. A placeholder on every keystroke makes the
+                // preview flash and feel much slower than it is.
+                if (!preview.innerHTML) {
+                    preview.textContent = t('editor.previewing');
+                }
                 request('renderMathPreview', {
                     formula: formula,
                     display: displayInput.checked
@@ -465,10 +469,7 @@ export function getRichCommentEditorScript(): string {
                 });
             }
 
-            mathInput.addEventListener('input', function () {
-                clearTimeout(previewTimer);
-                previewTimer = setTimeout(updatePreview, 250);
-            });
+            mathInput.addEventListener('input', updatePreview);
             displayInput.addEventListener('change', updatePreview);
             mathInput.focus();
             updatePreview();
