@@ -8977,7 +8977,7 @@ ${Kn}
 `).replace(/<li[^>]*>/gi,"\u2022 ").replace(/<[^>]+>/g,"").replace(/&nbsp;/gi," ").replace(/&amp;/gi,"&").replace(/&lt;/gi,"<").replace(/&gt;/gi,">").replace(/&quot;/gi,'"').replace(/&#39;/gi,"'").replace(/[ \t]+\n/g,`
 `).replace(/\n{3,}/g,`
 
-`).trim()}function gE(t){return t.course_title||t.course_title_en||(t.course?b("profile.courseFallback",{id:t.course}):b("profile.certificateStepik"))}function bE(t){let e=t.type==="distinction"?b("profile.certificateDistinction"):t.type==="regular"?b("profile.certificateRegular"):t.type?t.type:b("profile.certificateRegular"),r=typeof t.grade=="number"?b("profile.certificateProgress",{grade:Math.round(t.grade)}):"";return r?`${e}. ${r}`:e}function xE(t){let e=["name","title","type","provider","service"];for(let r of e){let n=t[r];if(typeof n=="string"&&n.trim())return n.trim()}return b("profile.linkFallback")}function vE(t){let e=["url","link","href"];for(let r of e){let n=Hx(t[r]);if(n)return n}}function yE(t,e,r){let n=t?.pins?.length?t.pins:e?.pins||[],a=new Date,i=Date.UTC(a.getUTCFullYear(),a.getUTCMonth(),a.getUTCDate());return{days:n.map((o,c)=>({date:new Date(i-(n.length-1-c)*864e5).toISOString().slice(0,10),count:Math.max(0,Number(o)||0)})),recentStrike:Math.max(0,Number(e?.recent_strike)||0),maxStrike:Math.max(0,Number(e?.max_strike)||0),solved:Math.max(0,Number(e?.solved)||r||0),solvedToday:Math.max(0,Number(e?.solved_today)||0)}}var Kc=class{constructor(e,r,n){this.context=e;this.api=r;this.log=a=>n.appendLine(`[Profile] ${a}`)}panel;log;show(){if(this.panel){this.panel.reveal(on.ViewColumn.Active);return}let e=on.window.createWebviewPanel("stepikProfile",b("profile.panelTitle"),on.ViewColumn.Active,{enableScripts:!0,retainContextWhenHidden:!0});e.iconPath=on.Uri.joinPath(this.context.extensionUri,"resources","stepik-badge.svg");let r=e.webview.onDidReceiveMessage(n=>this.handleMessage(n));e.onDidDispose(()=>{r.dispose(),this.panel===e&&(this.panel=void 0)}),this.panel=e,e.webview.html=this.getHtml(e.webview)}resetForLogout(){this.panel?.dispose(),this.panel=void 0}refreshLocalization(){this.panel&&(this.panel.title=b("profile.panelTitle"),this.panel.webview.html=this.getHtml(this.panel.webview))}dispose(){this.resetForLogout()}async loadProfile(){try{let e=await this.api.getCurrentUser(),[r,n,a,i,s]=await Promise.all([this.api.getUser(e.id),this.api.getProfile(e.id),this.api.getUserActivity(e.id),this.api.getUserActivitySummary(e.id),this.api.getCertificates(e.id)]);if(!r&&!n)throw new Error(b("profile.dataMissing"));let o=r||{id:e.id,full_name:e.fullName,avatar:e.avatar,alias:e.alias},c=n,u=(o.social_profiles||[]).map(h=>{let d=vE(h);if(d)return{title:xE(h),url:d}}).filter(h=>!!h),l=Px(o.avatar||c?.avatar||e.avatar),f={id:e.id,fullName:o.full_name||c?.full_name||e.fullName||e.alias||b("profile.userFallback",{id:e.id}),alias:o.alias||e.alias||void 0,avatar:l,shortBio:qx(o.short_bio||c?.short_bio)||void 0,details:qx(o.details||c?.details)||void 0,city:o.city||c?.city||void 0,reputation:Math.max(0,Number(o.reputation)||0),reputationRank:o.reputation_rank??null,knowledge:Math.max(0,Number(o.knowledge)||0),knowledgeRank:o.knowledge_rank??null,followers:Math.max(0,Number(o.followers_count)||0),solvedSteps:Math.max(0,Number(o.solved_steps_count)||i?.solved||0),createdCourses:Math.max(0,Number(o.created_courses_count)||0),createdLessons:Math.max(0,Number(o.created_lessons_count)||0),issuedCertificates:s.length,joinDate:o.join_date||void 0,socialProfiles:u,activity:yE(a,i,o.solved_steps_count||0),certificates:s.map(h=>({id:h.id,title:gE(h),subtitle:bE(h),issueDate:h.issue_date,grade:h.grade,type:h.type,previewUrl:Px(h.preview_url),url:hE(h.url),courseId:h.course,rank:h.user_rank&&h.leaderboard_size?b("profile.rankOf",{rank:h.user_rank,total:h.leaderboard_size}):void 0})),profileUrl:`https://stepik.org/users/${e.id}/profile`,editProfileUrl:"https://stepik.org/edit-profile"};this.post({command:"profile",profile:f})}catch(e){let r=e instanceof Error?e.message:String(e);this.log(b("profile.loadLog",{detail:r})),this.post({command:"error",message:/not authenticated|login first|session has expired|Сессия Stepik истекла/i.test(r)?b("profile.loginRequired"):r})}}async openExternal(e){let r=Hx(e);r&&await on.env.openExternal(on.Uri.parse(r))}async handleMessage(e){switch(e.command){case"init":await this.loadProfile();break;case"refresh":this.api.clearCache(),await this.loadProfile();break;case"openExternal":await this.openExternal(e.url);break;case"openCertificate":await this.openExternal(e.certificateUrl);break;default:break}}post(e){this.panel?.webview.postMessage(e)}getHtml(e){let r=zx.randomBytes(16).toString("hex"),n=or(),a=JSON.stringify(Rn(n)).replace(/</g,"\\u003c");return`<!DOCTYPE html>
+`).trim()}function gE(t){return t.course_title||t.course_title_en||(t.course?b("profile.courseFallback",{id:t.course}):b("profile.certificateStepik"))}function bE(t){let e=t.type==="distinction"?b("profile.certificateDistinction"):t.type==="regular"?b("profile.certificateRegular"):t.type?t.type:b("profile.certificateRegular"),r=typeof t.grade=="number"?b("profile.certificateProgress",{grade:Math.round(t.grade)}):"";return r?`${e}. ${r}`:e}function xE(t){let e=["name","title","type","provider","service"];for(let r of e){let n=t[r];if(typeof n=="string"&&n.trim())return n.trim()}return b("profile.linkFallback")}function vE(t){let e=["url","link","href"];for(let r of e){let n=Hx(t[r]);if(n)return n}}function yE(t,e,r){let n=t?.pins?.length?t.pins:e?.pins||[],a=new Date,i=Date.UTC(a.getUTCFullYear(),a.getUTCMonth(),a.getUTCDate());return{days:n.map((o,c)=>({date:new Date(i-c*864e5).toISOString().slice(0,10),count:Math.max(0,Number(o)||0)})).reverse(),recentStrike:Math.max(0,Number(e?.recent_strike)||0),maxStrike:Math.max(0,Number(e?.max_strike)||0),solved:Math.max(0,Number(e?.solved)||r||0),solvedToday:Math.max(0,Number(e?.solved_today)||0)}}var Kc=class{constructor(e,r,n){this.context=e;this.api=r;this.log=a=>n.appendLine(`[Profile] ${a}`)}panel;log;show(){if(this.panel){this.panel.reveal(on.ViewColumn.Active);return}let e=on.window.createWebviewPanel("stepikProfile",b("profile.panelTitle"),on.ViewColumn.Active,{enableScripts:!0,retainContextWhenHidden:!0});e.iconPath=on.Uri.joinPath(this.context.extensionUri,"resources","stepik-badge.svg");let r=e.webview.onDidReceiveMessage(n=>this.handleMessage(n));e.onDidDispose(()=>{r.dispose(),this.panel===e&&(this.panel=void 0)}),this.panel=e,e.webview.html=this.getHtml(e.webview)}resetForLogout(){this.panel?.dispose(),this.panel=void 0}refreshLocalization(){this.panel&&(this.panel.title=b("profile.panelTitle"),this.panel.webview.html=this.getHtml(this.panel.webview))}dispose(){this.resetForLogout()}async loadProfile(){try{let e=await this.api.getCurrentUser(),[r,n,a,i,s]=await Promise.all([this.api.getUser(e.id),this.api.getProfile(e.id),this.api.getUserActivity(e.id),this.api.getUserActivitySummary(e.id),this.api.getCertificates(e.id)]);if(!r&&!n)throw new Error(b("profile.dataMissing"));let o=r||{id:e.id,full_name:e.fullName,avatar:e.avatar,alias:e.alias},c=n,u=(o.social_profiles||[]).map(h=>{let d=vE(h);if(d)return{title:xE(h),url:d}}).filter(h=>!!h),l=Px(o.avatar||c?.avatar||e.avatar),f={id:e.id,fullName:o.full_name||c?.full_name||e.fullName||e.alias||b("profile.userFallback",{id:e.id}),alias:o.alias||e.alias||void 0,avatar:l,shortBio:qx(o.short_bio||c?.short_bio)||void 0,details:qx(o.details||c?.details)||void 0,city:o.city||c?.city||void 0,reputation:Math.max(0,Number(o.reputation)||0),reputationRank:o.reputation_rank??null,knowledge:Math.max(0,Number(o.knowledge)||0),knowledgeRank:o.knowledge_rank??null,followers:Math.max(0,Number(o.followers_count)||0),solvedSteps:Math.max(0,Number(o.solved_steps_count)||i?.solved||0),createdCourses:Math.max(0,Number(o.created_courses_count)||0),createdLessons:Math.max(0,Number(o.created_lessons_count)||0),issuedCertificates:s.length,joinDate:o.join_date||void 0,socialProfiles:u,activity:yE(a,i,o.solved_steps_count||0),certificates:s.map(h=>({id:h.id,title:gE(h),subtitle:bE(h),issueDate:h.issue_date,grade:h.grade,type:h.type,previewUrl:Px(h.preview_url),url:hE(h.url),courseId:h.course,rank:h.user_rank&&h.leaderboard_size?b("profile.rankOf",{rank:h.user_rank,total:h.leaderboard_size}):void 0})),profileUrl:`https://stepik.org/users/${e.id}/profile`,editProfileUrl:"https://stepik.org/edit-profile"};this.post({command:"profile",profile:f})}catch(e){let r=e instanceof Error?e.message:String(e);this.log(b("profile.loadLog",{detail:r})),this.post({command:"error",message:/not authenticated|login first|session has expired|Сессия Stepik истекла/i.test(r)?b("profile.loginRequired"):r})}}async openExternal(e){let r=Hx(e);r&&await on.env.openExternal(on.Uri.parse(r))}async handleMessage(e){switch(e.command){case"init":await this.loadProfile();break;case"refresh":this.api.clearCache(),await this.loadProfile();break;case"openExternal":await this.openExternal(e.url);break;case"openCertificate":await this.openExternal(e.certificateUrl);break;default:break}}post(e){this.panel?.webview.postMessage(e)}getHtml(e){let r=zx.randomBytes(16).toString("hex"),n=or(),a=JSON.stringify(Rn(n)).replace(/</g,"\\u003c");return`<!DOCTYPE html>
 <html lang="${n}">
 <head>
     <meta charset="UTF-8">
@@ -9240,13 +9240,13 @@ ${Kn}
             overflow: hidden;
         }
         .activity-scroll {
-            overflow-x: auto;
-            padding-bottom: 2px;
+            display: flex;
+            justify-content: flex-end;
         }
         .heatmap-wrap {
             display: flex;
             gap: 6px;
-            min-width: 680px;
+            min-width: 0;
         }
         .weekday-labels {
             display: grid;
@@ -9753,6 +9753,26 @@ ${Kn}
                 return item;
             }
 
+            var heatmapRender = null;
+            var heatmapFrame = 0;
+
+            function scheduleHeatmapRender() {
+                if (!heatmapRender || heatmapFrame) {
+                    return;
+                }
+                heatmapFrame = window.requestAnimationFrame(function () {
+                    heatmapFrame = 0;
+                    if (heatmapRender) {
+                        heatmapRender();
+                    }
+                });
+            }
+
+            window.addEventListener('resize', scheduleHeatmapRender);
+            var heatmapObserver = typeof ResizeObserver === 'function'
+                ? new ResizeObserver(scheduleHeatmapRender)
+                : null;
+
             function buildHeatmap(activity) {
                 var days = Array.isArray(activity.days) ? activity.days.slice(-365) : [];
                 var card = element('div', 'activity-card');
@@ -9761,22 +9781,25 @@ ${Kn}
 
                 var weekdays = element('div', 'weekday-labels');
                 var weekdayLabels = String(L['profile.weekdays'] || '').split(',');
-                weekdayLabels.forEach(function (label) {
-                    weekdays.appendChild(element('span', '', label));
-                });
+                for (var weekdayIndex = 0; weekdayIndex < 7; weekdayIndex++) {
+                    var weekdayText = weekdayLabels.length >= 7
+                        ? weekdayLabels[weekdayIndex]
+                        : (weekdayIndex % 2 === 0 ? weekdayLabels[weekdayIndex / 2] : '');
+                    weekdays.appendChild(element('span', '', weekdayText || ''));
+                }
                 wrap.appendChild(weekdays);
 
                 var column = element('div', 'heatmap-column');
                 var months = element('div', 'months');
                 var grid = element('div', 'heatmap');
+                column.appendChild(months);
+                column.appendChild(grid);
+                wrap.appendChild(column);
+                scroll.appendChild(wrap);
+                card.appendChild(scroll);
 
                 if (days.length === 0) {
-                    column.appendChild(months);
                     grid.appendChild(element('div', 'heat-cell'));
-                    column.appendChild(grid);
-                    wrap.appendChild(column);
-                    scroll.appendChild(wrap);
-                    card.appendChild(scroll);
                     card.appendChild(element('p', 'activity-note', t('profile.noActivity')));
                     return card;
                 }
@@ -9785,10 +9808,6 @@ ${Kn}
                     var parts = iso.split('-').map(Number);
                     return new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
                 };
-                var first = parse(days[0].date);
-                var pad = (first.getUTCDay() + 6) % 7;
-                var total = pad + days.length;
-                var weeks = Math.ceil(total / 7);
                 var max = 0;
                 days.forEach(function (day) { max = Math.max(max, day.count); });
 
@@ -9806,47 +9825,103 @@ ${Kn}
                     }
                 };
 
-                var monthLabels = [];
-                for (var index = 0; index < days.length; index++) {
-                    var date = parse(days[index].date);
-                    if (date.getUTCDate() === 1) {
-                        var weekIndex = Math.floor((pad + index) / 7);
-                        var label = labelForDate(date);
-                        if (!monthLabels.length || monthLabels[monthLabels.length - 1].label !== label) {
-                            monthLabels.push({ week: weekIndex, label: label });
-                        }
-                    }
-                }
-                var monthWidth = 13;
-                months.style.width = (weeks * monthWidth) + 'px';
-                monthLabels.forEach(function (entry) {
-                    var label = element('span', 'month-label', entry.label);
-                    label.style.left = (entry.week * monthWidth) + 'px';
-                    months.appendChild(label);
-                });
-                column.appendChild(months);
-
+                var first = parse(days[0].date);
+                var pad = (first.getUTCDay() + 6) % 7;
+                var cells = [];
                 for (var empty = 0; empty < pad; empty++) {
-                    grid.appendChild(element('div', 'heat-cell pad'));
+                    cells.push(null);
                 }
                 days.forEach(function (day) {
-                    var cell = element('div', 'heat-cell level-' + level(day.count));
-                    var label = t('profile.heatmapAria', {
-                        date: formatDay(day.date),
-                        count: day.count,
-                        word: plural('profile.solved', day.count)
-                    });
-                    cell.setAttribute('aria-label', label);
-                    cell.addEventListener('mouseenter', function () {
-                        showHeatTooltip(cell, day);
-                    });
-                    cell.addEventListener('mouseleave', hideHeatTooltip);
-                    grid.appendChild(cell);
+                    cells.push(day);
                 });
-                column.appendChild(grid);
-                wrap.appendChild(column);
-                scroll.appendChild(wrap);
-                card.appendChild(scroll);
+
+                var cellSize = 10;
+                var cellGap = 3;
+                var weekWidth = cellSize + cellGap;
+
+                var renderCalendar = function () {
+                    if (!card.isConnected) {
+                        return;
+                    }
+                    var available = scroll.clientWidth;
+                    if (!available) {
+                        return;
+                    }
+                    var gridWidth = available - weekdays.offsetWidth - 6;
+                    var weeksFit = Math.max(1, Math.floor((gridWidth + cellGap) / weekWidth));
+                    var visible = cells.slice(-weeksFit * 7);
+                    var weeks = Math.ceil(visible.length / 7);
+
+                    while (grid.firstChild) {
+                        grid.removeChild(grid.firstChild);
+                    }
+                    while (months.firstChild) {
+                        months.removeChild(months.firstChild);
+                    }
+
+                    var monthLabels = [];
+                    var firstDayIndex = -1;
+                    for (var scan = 0; scan < visible.length; scan++) {
+                        if (visible[scan]) {
+                            firstDayIndex = scan;
+                            break;
+                        }
+                    }
+                    if (firstDayIndex >= 0) {
+                        monthLabels.push({
+                            week: Math.floor(firstDayIndex / 7),
+                            label: labelForDate(parse(visible[firstDayIndex].date))
+                        });
+                    }
+                    visible.forEach(function (day, index) {
+                        if (!day) {
+                            return;
+                        }
+                        var date = parse(day.date);
+                        if (date.getUTCDate() !== 1) {
+                            return;
+                        }
+                        var weekIndex = Math.floor(index / 7);
+                        var label = labelForDate(date);
+                        var previous = monthLabels[monthLabels.length - 1];
+                        if (!previous || previous.label !== label) {
+                            monthLabels.push({ week: weekIndex, label: label });
+                        }
+                    });
+
+                    months.style.width = (weeks * weekWidth - cellGap) + 'px';
+                    monthLabels.forEach(function (entry) {
+                        var label = element('span', 'month-label', entry.label);
+                        label.style.left = (entry.week * weekWidth) + 'px';
+                        months.appendChild(label);
+                    });
+
+                    visible.forEach(function (day) {
+                        if (!day) {
+                            grid.appendChild(element('div', 'heat-cell pad'));
+                            return;
+                        }
+                        var cell = element('div', 'heat-cell level-' + level(day.count));
+                        var label = t('profile.heatmapAria', {
+                            date: formatDay(day.date),
+                            count: day.count,
+                            word: plural('profile.solved', day.count)
+                        });
+                        cell.setAttribute('aria-label', label);
+                        cell.addEventListener('mouseenter', function () {
+                            showHeatTooltip(cell, day);
+                        });
+                        cell.addEventListener('mouseleave', hideHeatTooltip);
+                        grid.appendChild(cell);
+                    });
+                };
+
+                heatmapRender = renderCalendar;
+                if (heatmapObserver) {
+                    heatmapObserver.disconnect();
+                    heatmapObserver.observe(scroll);
+                }
+                window.requestAnimationFrame(renderCalendar);
 
                 var legend = element('div', 'heat-legend');
                 legend.appendChild(element('span', '', t('profile.less')));

@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.4.10] - 2026-11-08
+
+### Fixed
+
+- The profile activity calendar is now anchored to the right edge and shows the
+  most recent weeks. It no longer scrolls horizontally: only the weeks that fit
+  the panel width are rendered, and the calendar rebuilds when the panel is
+  resized.
+- Weekday labels in the activity calendar are now aligned with their actual
+  rows (Mon, Wed, Fri, Sun) instead of being packed into the first four rows.
+- Recent activity now appears on the right edge of the calendar. Stepik
+  returns daily pins newest-first, but the extension treated them as
+  oldest-first, so yesterday's solved tasks were drawn almost a year in the
+  past.
+
 ## [0.4.9] - 2026-11-07
 
 ### Fixed

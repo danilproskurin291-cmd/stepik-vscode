@@ -123,6 +123,7 @@ export interface UserActivitySummary {
 /** Per-day activity used by the profile heatmap (up to 365 days). */
 export interface UserActivity {
     id: number;
+    /** Daily counts ordered from today backwards. */
     pins: number[];
 }
 

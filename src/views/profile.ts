@@ -207,13 +207,17 @@ function buildActivity(
         today.getUTCMonth(),
         today.getUTCDate()
     );
-    const days: ProfileActivityDay[] = pins.map((count, index) => {
-        const date = new Date(end - (pins.length - 1 - index) * 86_400_000);
-        return {
-            date: date.toISOString().slice(0, 10),
-            count: Math.max(0, Number(count) || 0)
-        };
-    });
+    // Stepik returns pins newest-first: pins[0] is today, pins[1] is yesterday.
+    // The heatmap expects chronological order, so map by index and reverse.
+    const days: ProfileActivityDay[] = pins
+        .map((count, index) => {
+            const date = new Date(end - index * 86_400_000);
+            return {
+                date: date.toISOString().slice(0, 10),
+                count: Math.max(0, Number(count) || 0)
+            };
+        })
+        .reverse();
     return {
         days,
         recentStrike: Math.max(0, Number(summary?.recent_strike) || 0),
@@ -697,13 +701,13 @@ export class StepikProfileView implements vscode.Disposable {
             overflow: hidden;
         }
         .activity-scroll {
-            overflow-x: auto;
-            padding-bottom: 2px;
+            display: flex;
+            justify-content: flex-end;
         }
         .heatmap-wrap {
             display: flex;
             gap: 6px;
-            min-width: 680px;
+            min-width: 0;
         }
         .weekday-labels {
             display: grid;
@@ -1210,6 +1214,26 @@ ${stepikThemeCss}
                 return item;
             }
 
+            var heatmapRender = null;
+            var heatmapFrame = 0;
+
+            function scheduleHeatmapRender() {
+                if (!heatmapRender || heatmapFrame) {
+                    return;
+                }
+                heatmapFrame = window.requestAnimationFrame(function () {
+                    heatmapFrame = 0;
+                    if (heatmapRender) {
+                        heatmapRender();
+                    }
+                });
+            }
+
+            window.addEventListener('resize', scheduleHeatmapRender);
+            var heatmapObserver = typeof ResizeObserver === 'function'
+                ? new ResizeObserver(scheduleHeatmapRender)
+                : null;
+
             function buildHeatmap(activity) {
                 var days = Array.isArray(activity.days) ? activity.days.slice(-365) : [];
                 var card = element('div', 'activity-card');
@@ -1218,22 +1242,25 @@ ${stepikThemeCss}
 
                 var weekdays = element('div', 'weekday-labels');
                 var weekdayLabels = String(L['profile.weekdays'] || '').split(',');
-                weekdayLabels.forEach(function (label) {
-                    weekdays.appendChild(element('span', '', label));
-                });
+                for (var weekdayIndex = 0; weekdayIndex < 7; weekdayIndex++) {
+                    var weekdayText = weekdayLabels.length >= 7
+                        ? weekdayLabels[weekdayIndex]
+                        : (weekdayIndex % 2 === 0 ? weekdayLabels[weekdayIndex / 2] : '');
+                    weekdays.appendChild(element('span', '', weekdayText || ''));
+                }
                 wrap.appendChild(weekdays);
 
                 var column = element('div', 'heatmap-column');
                 var months = element('div', 'months');
                 var grid = element('div', 'heatmap');
+                column.appendChild(months);
+                column.appendChild(grid);
+                wrap.appendChild(column);
+                scroll.appendChild(wrap);
+                card.appendChild(scroll);
 
                 if (days.length === 0) {
-                    column.appendChild(months);
                     grid.appendChild(element('div', 'heat-cell'));
-                    column.appendChild(grid);
-                    wrap.appendChild(column);
-                    scroll.appendChild(wrap);
-                    card.appendChild(scroll);
                     card.appendChild(element('p', 'activity-note', t('profile.noActivity')));
                     return card;
                 }
@@ -1242,10 +1269,6 @@ ${stepikThemeCss}
                     var parts = iso.split('-').map(Number);
                     return new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
                 };
-                var first = parse(days[0].date);
-                var pad = (first.getUTCDay() + 6) % 7;
-                var total = pad + days.length;
-                var weeks = Math.ceil(total / 7);
                 var max = 0;
                 days.forEach(function (day) { max = Math.max(max, day.count); });
 
@@ -1263,47 +1286,103 @@ ${stepikThemeCss}
                     }
                 };
 
-                var monthLabels = [];
-                for (var index = 0; index < days.length; index++) {
-                    var date = parse(days[index].date);
-                    if (date.getUTCDate() === 1) {
-                        var weekIndex = Math.floor((pad + index) / 7);
-                        var label = labelForDate(date);
-                        if (!monthLabels.length || monthLabels[monthLabels.length - 1].label !== label) {
-                            monthLabels.push({ week: weekIndex, label: label });
-                        }
-                    }
-                }
-                var monthWidth = 13;
-                months.style.width = (weeks * monthWidth) + 'px';
-                monthLabels.forEach(function (entry) {
-                    var label = element('span', 'month-label', entry.label);
-                    label.style.left = (entry.week * monthWidth) + 'px';
-                    months.appendChild(label);
-                });
-                column.appendChild(months);
-
+                var first = parse(days[0].date);
+                var pad = (first.getUTCDay() + 6) % 7;
+                var cells = [];
                 for (var empty = 0; empty < pad; empty++) {
-                    grid.appendChild(element('div', 'heat-cell pad'));
+                    cells.push(null);
                 }
                 days.forEach(function (day) {
-                    var cell = element('div', 'heat-cell level-' + level(day.count));
-                    var label = t('profile.heatmapAria', {
-                        date: formatDay(day.date),
-                        count: day.count,
-                        word: plural('profile.solved', day.count)
-                    });
-                    cell.setAttribute('aria-label', label);
-                    cell.addEventListener('mouseenter', function () {
-                        showHeatTooltip(cell, day);
-                    });
-                    cell.addEventListener('mouseleave', hideHeatTooltip);
-                    grid.appendChild(cell);
+                    cells.push(day);
                 });
-                column.appendChild(grid);
-                wrap.appendChild(column);
-                scroll.appendChild(wrap);
-                card.appendChild(scroll);
+
+                var cellSize = 10;
+                var cellGap = 3;
+                var weekWidth = cellSize + cellGap;
+
+                var renderCalendar = function () {
+                    if (!card.isConnected) {
+                        return;
+                    }
+                    var available = scroll.clientWidth;
+                    if (!available) {
+                        return;
+                    }
+                    var gridWidth = available - weekdays.offsetWidth - 6;
+                    var weeksFit = Math.max(1, Math.floor((gridWidth + cellGap) / weekWidth));
+                    var visible = cells.slice(-weeksFit * 7);
+                    var weeks = Math.ceil(visible.length / 7);
+
+                    while (grid.firstChild) {
+                        grid.removeChild(grid.firstChild);
+                    }
+                    while (months.firstChild) {
+                        months.removeChild(months.firstChild);
+                    }
+
+                    var monthLabels = [];
+                    var firstDayIndex = -1;
+                    for (var scan = 0; scan < visible.length; scan++) {
+                        if (visible[scan]) {
+                            firstDayIndex = scan;
+                            break;
+                        }
+                    }
+                    if (firstDayIndex >= 0) {
+                        monthLabels.push({
+                            week: Math.floor(firstDayIndex / 7),
+                            label: labelForDate(parse(visible[firstDayIndex].date))
+                        });
+                    }
+                    visible.forEach(function (day, index) {
+                        if (!day) {
+                            return;
+                        }
+                        var date = parse(day.date);
+                        if (date.getUTCDate() !== 1) {
+                            return;
+                        }
+                        var weekIndex = Math.floor(index / 7);
+                        var label = labelForDate(date);
+                        var previous = monthLabels[monthLabels.length - 1];
+                        if (!previous || previous.label !== label) {
+                            monthLabels.push({ week: weekIndex, label: label });
+                        }
+                    });
+
+                    months.style.width = (weeks * weekWidth - cellGap) + 'px';
+                    monthLabels.forEach(function (entry) {
+                        var label = element('span', 'month-label', entry.label);
+                        label.style.left = (entry.week * weekWidth) + 'px';
+                        months.appendChild(label);
+                    });
+
+                    visible.forEach(function (day) {
+                        if (!day) {
+                            grid.appendChild(element('div', 'heat-cell pad'));
+                            return;
+                        }
+                        var cell = element('div', 'heat-cell level-' + level(day.count));
+                        var label = t('profile.heatmapAria', {
+                            date: formatDay(day.date),
+                            count: day.count,
+                            word: plural('profile.solved', day.count)
+                        });
+                        cell.setAttribute('aria-label', label);
+                        cell.addEventListener('mouseenter', function () {
+                            showHeatTooltip(cell, day);
+                        });
+                        cell.addEventListener('mouseleave', hideHeatTooltip);
+                        grid.appendChild(cell);
+                    });
+                };
+
+                heatmapRender = renderCalendar;
+                if (heatmapObserver) {
+                    heatmapObserver.disconnect();
+                    heatmapObserver.observe(scroll);
+                }
+                window.requestAnimationFrame(renderCalendar);
 
                 var legend = element('div', 'heat-legend');
                 legend.appendChild(element('span', '', t('profile.less')));
